@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import base64
+import binascii
 import io
 import random
 import re
@@ -11,6 +13,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from app import db
@@ -59,6 +62,101 @@ def _mark_many_downloaded(job_ids: list[str]) -> None:
         db.update_job(job_id, downloaded=1)
 
 
+class JsonJobRequest(BaseModel):
+    owner: str
+    renderer: str
+    prompt: str
+    duration: int
+    variations: int = Field(ge=1, le=100)
+    start_frame_data_url: str | None = None
+    end_frame_data_url: str | None = None
+
+
+def _save_data_url(data_url: str | None, batch_id: str, name: str) -> str | None:
+    if not data_url:
+        return None
+
+    match = re.match(
+        r"^data:(image/(?:png|jpeg|webp));base64,(.+)$",
+        data_url,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        raise HTTPException(400, f"Unsupported or invalid {name} image")
+
+    mime = match.group(1).lower()
+    suffix = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+    }[mime]
+
+    try:
+        payload = base64.b64decode(match.group(2), validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(400, f"Invalid base64 data for {name} image") from exc
+
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    if len(payload) > max_bytes:
+        raise HTTPException(413, f"{name} image exceeds {settings.max_upload_mb} MB")
+
+    path = settings.data_dir / "inputs" / f"{batch_id}_{name}{suffix}"
+    path.write_bytes(payload)
+    return str(path)
+
+
+def _create_job_records(
+    *,
+    owner: str,
+    renderer: str,
+    prompt: str,
+    duration: int,
+    variations: int,
+    start_path: str | None,
+    end_path: str | None,
+) -> dict:
+    owner = owner.strip()[:40]
+    prompt = prompt.strip()
+
+    if not owner:
+        raise HTTPException(400, "Creator name is required")
+    if not prompt:
+        raise HTTPException(400, "Prompt is required")
+    if renderer not in RENDERERS:
+        raise HTTPException(400, "Unknown renderer")
+
+    caps = RENDERERS[renderer]
+    if duration not in caps.supported_durations:
+        raise HTTPException(400, f"{caps.name} does not support {duration}s in this adapter")
+    if not 1 <= variations <= 100:
+        raise HTTPException(400, "Variations must be between 1 and 100")
+    if caps.supports_start_frame and not start_path:
+        raise HTTPException(400, "Start/reference frame is required for this model")
+    if end_path and not caps.supports_end_frame:
+        raise HTTPException(400, f"{caps.name} does not support a native end frame in V1")
+
+    batch_id = Path(start_path).name.split("_", 1)[0] if start_path else uuid.uuid4().hex[:12]
+    ids: list[str] = []
+
+    for _ in range(variations):
+        job_id = uuid.uuid4().hex
+        ids.append(job_id)
+        db.create_job({
+            "id": job_id,
+            "batch_id": batch_id,
+            "owner": owner,
+            "renderer": renderer,
+            "prompt": prompt,
+            "duration": duration,
+            "seed": random.randint(0, 2_147_483_647),
+            "start_frame": start_path,
+            "end_frame": end_path,
+            "status": JobStatus.QUEUED.value,
+        })
+
+    return {"batch_id": batch_id, "job_ids": ids}
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return (STATIC / "index.html").read_text()
@@ -97,6 +195,28 @@ async def _save_upload(upload: UploadFile | None, batch_id: str, name: str) -> s
                 raise HTTPException(413, "Upload too large")
             out.write(chunk)
     return str(path)
+
+
+@app.post("/api/jobs-json")
+def create_jobs_json(
+    payload: JsonJobRequest,
+    x_access_token: str | None = Header(default=None),
+) -> dict:
+    _check_auth(x_access_token)
+
+    batch_id = uuid.uuid4().hex[:12]
+    start_path = _save_data_url(payload.start_frame_data_url, batch_id, "start")
+    end_path = _save_data_url(payload.end_frame_data_url, batch_id, "end")
+
+    return _create_job_records(
+        owner=payload.owner,
+        renderer=payload.renderer,
+        prompt=payload.prompt,
+        duration=payload.duration,
+        variations=payload.variations,
+        start_path=start_path,
+        end_path=end_path,
+    )
 
 
 @app.post("/api/jobs")
