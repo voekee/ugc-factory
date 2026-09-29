@@ -104,10 +104,15 @@ echo "[LTX] Converting model output to 720x1280..."
 # 1344 * 9 / 16 = 756. Crop 6 px from each side of the 768-wide model
 # output, then scale 756x1344 -> 720x1280.
 ffmpeg -y -hide_banner -loglevel error \
+  -fflags +genpts \
   -i "$MODEL_OUTPUT" \
-  -vf "crop=756:1344:6:0,scale=${FINAL_WIDTH}:${FINAL_HEIGHT}:flags=lanczos" \
+  -map 0:v:0 -map 0:a:0? \
+  -vf "crop=756:1344:6:0,scale=${FINAL_WIDTH}:${FINAL_HEIGHT}:flags=lanczos,fps=24,format=yuv420p,setpts=N/(24*TB)" \
+  -af "aresample=async=1:first_pts=0" \
+  -t "$UGC_DURATION" \
   -c:v libx264 -preset medium -crf 18 -pix_fmt yuv420p \
   -c:a aac -b:a 192k \
+  -movflags +faststart \
   "$UGC_OUTPUT"
 
 rm -f "$MODEL_OUTPUT"
