@@ -39,6 +39,7 @@ STATE: dict[str, Any] = {
     "pod_id": "",
     "dashboard_url": "",
     "workspace_url": "",
+    "session_token": "",
     "selected_gpu": "",
     "selected_cloud": "",
     "error": "",
@@ -426,6 +427,7 @@ def _clear_active_session() -> None:
         "pod_id": "",
         "dashboard_url": "",
         "workspace_url": "",
+        "session_token": "",
         "selected_gpu": "",
         "selected_cloud": "",
         "error": "",
@@ -473,6 +475,7 @@ def _session_status_payload() -> dict[str, Any]:
             "pod_id": STATE["pod_id"],
             "dashboard_url": STATE["dashboard_url"],
             "workspace_url": STATE["workspace_url"],
+            "session_token": STATE.get("session_token", ""),
             "selected_gpu": STATE["selected_gpu"],
             "selected_cloud": STATE["selected_cloud"],
         }
@@ -484,6 +487,7 @@ def _session_status_payload() -> dict[str, Any]:
             "pod_id": str(session.get("pod_id") or ""),
             "dashboard_url": str(session.get("dashboard_url") or ""),
             "workspace_url": str(session.get("workspace_url") or ""),
+            "session_token": str(session.get("session_token") or ""),
             "selected_gpu": str(session.get("selected_gpu") or ""),
             "selected_cloud": str(session.get("selected_cloud") or ""),
         })
@@ -513,16 +517,23 @@ def _session_status_payload() -> dict[str, Any]:
         }
 
     workspace_url = str(session.get("workspace_url") or "")
-    parsed_workspace = urlparse(workspace_url) if workspace_url else None
-    token_values = parse_qs(parsed_workspace.fragment).get("token", []) if parsed_workspace else []
-    if not token_values and parsed_workspace:
-        token_values = parse_qs(parsed_workspace.query).get("session_token", [])
-    session_token = token_values[0] if token_values else ""
+    session_token = str(session.get("session_token") or STATE.get("session_token") or "")
+
+    if not session_token and workspace_url:
+        parsed_workspace = urlparse(workspace_url)
+        token_values = parse_qs(parsed_workspace.fragment).get("token", [])
+        if not token_values:
+            token_values = parse_qs(parsed_workspace.query).get("session_token", [])
+        session_token = token_values[0] if token_values else ""
+
+    if dashboard_url and session_token:
+        workspace_url = f"{dashboard_url}/?session_token={urlencode({'v': session_token})[2:]}"
 
     return {
         **STATE,
         **session,
         **progress,
+        "workspace_url": workspace_url,
         "session_token": session_token,
         "health_probe_ready": health_ready,
         "ready": ready,
@@ -880,11 +891,12 @@ class Handler(BaseHTTPRequestHandler):
                 "pod_id": result["pod_id"],
                 "dashboard_url": result["dashboard_url"],
                 "workspace_url": result["workspace_url"],
+                "session_token": result["access_token"],
                 "selected_gpu": result.get("selected_gpu", gpu),
                 "selected_cloud": result.get("selected_cloud", cloud),
                 "error": "",
             })
-            self._json({"ok": True, **STATE})
+            self._json({"ok": True, **STATE, "session_token": result["access_token"]})
         except Exception as exc:
             STATE.update({"launching": False, "error": str(exc)})
             self._json({"error": str(exc)}, 400)
