@@ -1,10 +1,21 @@
 const $ = s => document.querySelector(s);
 
-const launchParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-const launchToken = launchParams.get('token') || '';
+const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+const queryParams = new URLSearchParams(window.location.search);
+const launchToken =
+  queryParams.get('session_token') ||
+  hashParams.get('token') ||
+  '';
+
 if (launchToken) {
   localStorage.setItem('ugc_token', launchToken);
-  history.replaceState(null, '', window.location.pathname + window.location.search);
+  queryParams.delete('session_token');
+  const remaining = queryParams.toString();
+  history.replaceState(
+    null,
+    '',
+    window.location.pathname + (remaining ? '?' + remaining : '')
+  );
 }
 
 let token = launchToken || localStorage.getItem('ugc_token') || '';
