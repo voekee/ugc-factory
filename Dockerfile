@@ -57,14 +57,17 @@ RUN git clone --no-checkout --filter=blob:none https://github.com/SkyworkAI/SkyR
     && python scripts/prepare_skyreels.py "$SKY_CODE" \
     && uv venv --seed --system-site-packages /opt/sky-venv --python python3 \
     && grep -v -E '^(torch==|torchvision==|flash_attn==|xfuser==|yunchang==|torchao==)' "$SKY_CODE/requirements.txt" > /tmp/sky-requirements.txt \
-    && /opt/sky-venv/bin/pip install --no-cache-dir -r /tmp/sky-requirements.txt imageio einops sentencepiece torchvision==0.24.1 \
+    && /opt/sky-venv/bin/pip install --no-cache-dir -r /tmp/sky-requirements.txt imageio einops sentencepiece av torchvision==0.24.1 \
     && cd "$SKY_CODE" \
     && /opt/sky-venv/bin/python - <<'PY'
 import torch, torchvision
+from PIL import Image
 from skyreels_v3.pipelines import ReferenceToVideoPipeline
 from skyreels_v3.modules.attention import FLASH_ATTN_2_AVAILABLE, FLASH_ATTN_3_AVAILABLE
+from skyreels_v3.utils.util import get_height_width_from_image
 print("SkyReels reference runtime ready", torch.__version__, torchvision.__version__)
 print("flash-attn available", FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE)
+print("portrait 720P model dimensions", get_height_width_from_image(Image.new("RGB", (720, 1280)), "720P"))
 PY
 
 EXPOSE 8000
