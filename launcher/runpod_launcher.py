@@ -65,7 +65,7 @@ def _create_single_pod(
 
     pod_id = str(pod["id"])
     dashboard_url = f"https://{pod_id}-8000.proxy.runpod.net"
-    workspace_url = f"{dashboard_url}/#token={quote(access, safe='')}"
+    workspace_url = f"{dashboard_url}/?session_token={quote(access, safe='')}"
 
     return {
         "pod_id": pod_id,
