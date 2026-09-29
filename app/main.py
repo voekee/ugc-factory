@@ -197,15 +197,13 @@ def _job_phase(job: dict) -> tuple[str, str]:
         return job["status"].title(), ""
 
     log = _read_job_log(job["id"])
-    if "[LTX] Starting render:" in log:
-        return "Rendering video", "Model is loaded and GPU inference is running"
-    if "[LTX] Downloading required LTX-2.5 weights..." in log:
-        return "Downloading LTX-2.5", "First-run model weights are downloading to the Pod"
-    if "[LTX] Installing LTX dependencies..." in log:
-        return "Installing LTX runtime", "Preparing the model environment before GPU inference"
-    if "[LTX] Preparing pinned LTX-2.5 runtime..." in log:
-        return "Preparing LTX runtime", "Checking code and environment"
-    return "Starting renderer", "Preparing the first LTX run"
+    if "[LTX] Loading model and starting render:" in log:
+        return "Loading model / rendering", "The LTX weights are loading into RAM/VRAM and GPU inference is starting"
+    if "[LTX] Downloading LTX-2.5 model weights..." in log:
+        return "Downloading LTX-2.5", "First-run model weights are downloading to this temporary Pod"
+    if "[LTX] Runtime baked into container." in log:
+        return "Checking GPU runtime", "LTX code and Python dependencies are already installed in the container"
+    return "Starting renderer", "Preparing the LTX run"
 
 
 def _enrich_job(job: dict) -> dict:
