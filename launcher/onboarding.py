@@ -150,7 +150,38 @@ def _validate_hf_token(token: str) -> None:
     except urllib.error.URLError as exc:
         raise ValueError("Could not reach Hugging Face to validate the token.") from exc
 
-
+    # LTX-2.5 is gated. A token can be valid for the account while still lacking
+    # permission to read gated model files, which would otherwise fail only after
+    # a paid GPU has already started.
+    gated_probe = urllib.request.Request(
+        (
+            "https://huggingface.co/Lightricks/LTX-2.5/resolve/main/"
+            "vae/ltx-2.5-audio-vae-bf16.safetensors"
+        ),
+        method="HEAD",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "UGC-Factory-Launcher/1.0",
+            "Accept": "*/*",
+        },
+    )
+    try:
+        with urllib.request.urlopen(gated_probe, timeout=20) as response:
+            if response.status not in {200, 206}:
+                raise ValueError("LTX-2.5 gated model access could not be verified.")
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise ValueError(
+                "Your Hugging Face token is valid, but it cannot read the gated "
+                "LTX-2.5 files. Open the Lightricks/LTX-2.5 model page, accept the "
+                "model terms, and make sure a fine-grained token has permission to "
+                "read gated repositories."
+            ) from exc
+        raise ValueError(
+            f"Could not verify LTX-2.5 model access: HTTP {exc.code}."
+        ) from exc
+    except urllib.error.URLError as exc:
+        raise ValueError("Could not reach Hugging Face to verify LTX-2.5 access.") from exc
 def _credentials_from_payload(payload: dict[str, Any]) -> tuple[str, str]:
     saved = _read_config()
 
