@@ -26,10 +26,10 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 
 DEFAULTS = {
     "image": "ghcr.io/voekee/ugc-factory:latest",
-    "gpu": "NVIDIA GeForce RTX 5090",
-    "cloud": "COMMUNITY",
+    "gpu": "AUTO",
+    "cloud": "ALL",
     "hours": 5.0,
-    "disk": 350,
+    "disk": 180,
     "rate": 0.99,
 }
 
@@ -39,6 +39,8 @@ STATE: dict[str, Any] = {
     "pod_id": "",
     "dashboard_url": "",
     "workspace_url": "",
+    "selected_gpu": "",
+    "selected_cloud": "",
     "error": "",
 }
 
@@ -246,6 +248,8 @@ class Handler(BaseHTTPRequestHandler):
                 "pod_id": "",
                 "dashboard_url": "",
                 "workspace_url": "",
+                "selected_gpu": "",
+                "selected_cloud": "",
                 "error": "",
             })
 
@@ -265,6 +269,8 @@ class Handler(BaseHTTPRequestHandler):
                 "pod_id": result["pod_id"],
                 "dashboard_url": result["dashboard_url"],
                 "workspace_url": result["workspace_url"],
+                "selected_gpu": result.get("selected_gpu", ""),
+                "selected_cloud": result.get("selected_cloud", ""),
                 "error": "",
             })
             self._json({
