@@ -173,10 +173,56 @@ def renderers(x_access_token: str | None = Header(default=None)) -> dict:
     return {"renderers": [r.dict() for r in RENDERERS.values()]}
 
 
+def _read_job_log(job_id: str, max_chars: int = 5000) -> str:
+    path = settings.data_dir / "logs" / f"{job_id}.log"
+    if not path.exists():
+        return ""
+    try:
+        data = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return data[-max_chars:]
+
+
+def _job_phase(job: dict) -> tuple[str, str]:
+    if job["status"] == "queued":
+        return "Queued", "Waiting for the worker"
+    if job["status"] == "cleaning":
+        return "Cleaning video", "Removing metadata and finalizing MP4"
+    if job["status"] == "complete":
+        return "Ready", "Finished"
+    if job["status"] == "failed":
+        return "Failed", "Open the renderer error for details"
+    if job["status"] != "rendering":
+        return job["status"].title(), ""
+
+    log = _read_job_log(job["id"])
+    if "[LTX] Starting render:" in log:
+        return "Rendering video", "Model is loaded and GPU inference is running"
+    if "[LTX] Downloading required LTX-2.5 weights..." in log:
+        return "Downloading LTX-2.5", "First-run model weights are downloading to the Pod"
+    if "[LTX] Installing LTX dependencies..." in log:
+        return "Installing LTX runtime", "Preparing the model environment before GPU inference"
+    if "[LTX] Preparing pinned LTX-2.5 runtime..." in log:
+        return "Preparing LTX runtime", "Checking code and environment"
+    return "Starting renderer", "Preparing the first LTX run"
+
+
+def _enrich_job(job: dict) -> dict:
+    phase, phase_detail = _job_phase(job)
+    live_log = _read_job_log(job["id"], max_chars=1800) if job["status"] == "rendering" else ""
+    return {
+        **job,
+        "phase": phase,
+        "phase_detail": phase_detail,
+        "live_log": live_log,
+    }
+
+
 @app.get("/api/jobs")
 def jobs(x_access_token: str | None = Header(default=None)) -> dict:
     _check_auth(x_access_token)
-    return {"jobs": db.list_jobs()}
+    return {"jobs": [_enrich_job(job) for job in db.list_jobs()]}
 
 
 async def _save_upload(upload: UploadFile | None, batch_id: str, name: str) -> str | None:
