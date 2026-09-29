@@ -1,0 +1,237 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+import io
+import random
+import re
+import uuid
+import zipfile
+from pathlib import Path
+
+from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
+
+from app import db
+from app.config import settings
+from app.models import JobStatus, RENDERERS
+from app.queue_worker import start_worker, stop_worker
+from app.runpod import resolve_pod_id, session_status, terminate_pod_delayed
+from app.watchdog import start_watchdog
+
+ROOT = Path(__file__).resolve().parents[1]
+STATIC = ROOT / "static"
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "inputs").mkdir(parents=True, exist_ok=True)
+    db.init_db()
+    start_worker()
+    start_watchdog()
+    try:
+        yield
+    finally:
+        stop_worker()
+
+
+app = FastAPI(title="UGC Factory", version="1.0.0", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
+def _check_auth(supplied: str | None) -> None:
+    if settings.app_access_token and supplied != settings.app_access_token:
+        raise HTTPException(status_code=401, detail="Invalid access token")
+
+
+def _safe_filename_part(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
+    return value.strip(".-")[:40] or "creator"
+
+
+def _mark_downloaded(job_id: str) -> None:
+    db.update_job(job_id, downloaded=1)
+
+
+def _mark_many_downloaded(job_ids: list[str]) -> None:
+    for job_id in job_ids:
+        db.update_job(job_id, downloaded=1)
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> str:
+    return (STATIC / "index.html").read_text()
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {"ok": True, "mode": settings.ugc_renderer_mode}
+
+
+@app.get("/api/renderers", dependencies=[])
+def renderers(x_access_token: str | None = Header(default=None)) -> dict:
+    _check_auth(x_access_token)
+    return {"renderers": [r.dict() for r in RENDERERS.values()]}
+
+
+@app.get("/api/jobs")
+def jobs(x_access_token: str | None = Header(default=None)) -> dict:
+    _check_auth(x_access_token)
+    return {"jobs": db.list_jobs()}
+
+
+async def _save_upload(upload: UploadFile | None, batch_id: str, name: str) -> str | None:
+    if upload is None or not upload.filename:
+        return None
+    suffix = Path(upload.filename).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(400, f"Unsupported image type: {suffix}")
+    path = settings.data_dir / "inputs" / f"{batch_id}_{name}{suffix}"
+    total = 0
+    with path.open("wb") as out:
+        while chunk := await upload.read(1024 * 1024):
+            total += len(chunk)
+            if total > settings.max_upload_mb * 1024 * 1024:
+                out.close(); path.unlink(missing_ok=True)
+                raise HTTPException(413, "Upload too large")
+            out.write(chunk)
+    return str(path)
+
+
+@app.post("/api/jobs")
+async def create_jobs(
+    owner: str = Form(...),
+    renderer: str = Form(...),
+    prompt: str = Form(...),
+    duration: int = Form(...),
+    variations: int = Form(...),
+    start_frame: UploadFile | None = File(default=None),
+    end_frame: UploadFile | None = File(default=None),
+    x_access_token: str | None = Header(default=None),
+) -> dict:
+    _check_auth(x_access_token)
+    owner = owner.strip()[:40]
+    prompt = prompt.strip()
+    if not owner or not prompt:
+        raise HTTPException(400, "Owner and prompt are required")
+    if renderer not in RENDERERS:
+        raise HTTPException(400, "Unknown renderer")
+    caps = RENDERERS[renderer]
+    if duration not in caps.supported_durations:
+        raise HTTPException(400, f"{caps.name} does not support {duration}s in this adapter")
+    if not 1 <= variations <= 100:
+        raise HTTPException(400, "Variations must be between 1 and 100")
+    if caps.supports_start_frame and start_frame is None:
+        raise HTTPException(400, "This renderer requires a start/reference frame in V1")
+    if end_frame is not None and not caps.supports_end_frame:
+        raise HTTPException(400, f"{caps.name} does not support a native end frame in V1")
+
+    batch_id = uuid.uuid4().hex[:12]
+    start_path = await _save_upload(start_frame, batch_id, "start")
+    end_path = await _save_upload(end_frame, batch_id, "end")
+
+    ids = []
+    for _ in range(variations):
+        job_id = uuid.uuid4().hex
+        ids.append(job_id)
+        db.create_job({
+            "id": job_id,
+            "batch_id": batch_id,
+            "owner": owner,
+            "renderer": renderer,
+            "prompt": prompt,
+            "duration": duration,
+            "seed": random.randint(0, 2_147_483_647),
+            "start_frame": start_path,
+            "end_frame": end_path,
+            "status": JobStatus.QUEUED.value,
+        })
+    return {"batch_id": batch_id, "job_ids": ids}
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, x_access_token: str | None = Header(default=None)) -> dict:
+    _check_auth(x_access_token)
+    job = db.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job["status"] != JobStatus.QUEUED.value:
+        raise HTTPException(409, "Only queued jobs can be cancelled")
+    db.update_job(job_id, status=JobStatus.CANCELLED.value)
+    return {"ok": True}
+
+
+@app.get("/api/jobs/{job_id}/video")
+def video(job_id: str, token: str = Query(...)):
+    _check_auth(token)
+    job = db.get_job(job_id)
+    if not job or job["status"] != JobStatus.COMPLETE.value or not job["output_clean"]:
+        raise HTTPException(404, "Video not ready")
+    return FileResponse(job["output_clean"], media_type="video/mp4")
+
+
+@app.get("/api/jobs/{job_id}/download")
+def download(job_id: str, token: str = Query(...)):
+    _check_auth(token)
+    job = db.get_job(job_id)
+    if not job or job["status"] != JobStatus.COMPLETE.value or not job["output_clean"]:
+        raise HTTPException(404, "Video not ready")
+    filename = f"{_safe_filename_part(job['owner'])}-{job['renderer']}-{job['duration']}s-{job_id[:8]}.mp4"
+    return FileResponse(
+        job["output_clean"],
+        media_type="video/mp4",
+        filename=filename,
+        background=BackgroundTask(_mark_downloaded, job_id),
+    )
+
+
+@app.get("/api/download.zip")
+def download_zip(ids: str = Query(...), token: str = Query(...)):
+    _check_auth(token)
+    wanted = [i for i in ids.split(",") if i][:100]
+    mem = io.BytesIO()
+    included = []
+    with zipfile.ZipFile(mem, "w", zipfile.ZIP_STORED) as zf:
+        for job_id in wanted:
+            job = db.get_job(job_id)
+            if not job or job["status"] != "complete" or not job["output_clean"]:
+                continue
+            path = Path(job["output_clean"])
+            if path.exists():
+                name = f"{_safe_filename_part(job['owner'])}-{job['renderer']}-{job['duration']}s-{job_id[:8]}.mp4"
+                zf.write(path, name)
+                included.append(job_id)
+    mem.seek(0)
+    return StreamingResponse(
+        mem,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=ugc-videos.zip"},
+        background=BackgroundTask(_mark_many_downloaded, included),
+    )
+
+
+@app.get("/api/session")
+def session(x_access_token: str | None = Header(default=None)) -> dict:
+    _check_auth(x_access_token)
+    jobs = db.list_jobs()
+    outstanding = sum(1 for j in jobs if j["status"] in {"queued", "rendering", "cleaning"})
+    undownloaded = sum(1 for j in jobs if j["status"] == "complete" and not j["downloaded"])
+    return {**session_status(), "active_jobs": outstanding, "undownloaded_outputs": undownloaded}
+
+
+@app.post("/api/session/terminate")
+async def terminate(background_tasks: BackgroundTasks, force: bool = Query(False), x_access_token: str | None = Header(default=None)) -> dict:
+    _check_auth(x_access_token)
+    jobs = db.list_jobs()
+    active = [j for j in jobs if j["status"] in {"queued", "rendering", "cleaning"}]
+    undownloaded = [j for j in jobs if j["status"] == "complete" and not j["downloaded"]]
+    if not force and (active or undownloaded):
+        raise HTTPException(409, detail={"active_jobs": len(active), "undownloaded_outputs": len(undownloaded)})
+    if settings.ugc_renderer_mode == "mock":
+        return {"ok": True, "mock": True, "message": "Mock mode does not own a Runpod Pod"}
+    pod_id = resolve_pod_id()
+    if not pod_id:
+        raise HTTPException(503, "Could not resolve the current Runpod Pod; refusing to fake termination")
+    background_tasks.add_task(terminate_pod_delayed)
+    return {"ok": True, "terminating": True}
