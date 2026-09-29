@@ -308,6 +308,7 @@
       <div id="sessionControls" class="session-controls">
         <div class="left">
           <button id="openWorkspace" class="button primary">Open workspace</button>
+          <button id="copySessionToken" class="button">Copy session token</button>
           <button id="refreshSession" class="button">Refresh status</button>
         </div>
         <button id="terminateActive" class="button danger">Terminate Pod</button>
@@ -333,6 +334,7 @@ let selectedOffer=null;
 let selectedHours=1;
 let workspaceTab=null;
 let currentWorkspaceUrl="";
+let currentSessionToken="";
 let startupTimer=null;
 
 async function get(path){
@@ -514,7 +516,12 @@ function renderActiveSession(status){
   $("#podText").textContent=gpu+" running"+cloud;
   $("#sessionControls").classList.add("show");
 
+  currentSessionToken=status.session_token||currentSessionToken||"";
   currentWorkspaceUrl=status.workspace_url||"";
+  if(currentSessionToken && currentWorkspaceUrl && !currentWorkspaceUrl.includes("session_token=")){
+    const sep=currentWorkspaceUrl.includes("?")?"&":"?";
+    currentWorkspaceUrl=currentWorkspaceUrl+sep+"session_token="+encodeURIComponent(currentSessionToken);
+  }
   renderStartupStatus(status);
 
   if(status.ready){
@@ -553,7 +560,12 @@ async function startSession(){
     $("#podDot").classList.add("live");
     $("#podText").textContent=`${selectedOffer.name} reserved · ${selectedOffer.cloud==="COMMUNITY"?"Community":"Secure"} · ${Number(selectedOffer.price_per_hour).toFixed(2)}/h`;
     $("#sessionControls").classList.add("show");
+    currentSessionToken=result.session_token||"";
     currentWorkspaceUrl=result.workspace_url||"";
+    if(currentSessionToken && currentWorkspaceUrl && !currentWorkspaceUrl.includes("session_token=")){
+      const sep=currentWorkspaceUrl.includes("?")?"&":"?";
+      currentWorkspaceUrl=currentWorkspaceUrl+sep+"session_token="+encodeURIComponent(currentSessionToken);
+    }
     await pollWorkspace();
   }catch(error){
     if(workspaceTab) workspaceTab.close();
@@ -569,7 +581,12 @@ async function pollWorkspace(){
     if(!status.active){
       throw new Error("The Runpod Pod is no longer active.");
     }
+    currentSessionToken=status.session_token||currentSessionToken||"";
     currentWorkspaceUrl=status.workspace_url||currentWorkspaceUrl;
+    if(currentSessionToken && currentWorkspaceUrl && !currentWorkspaceUrl.includes("session_token=")){
+      const sep=currentWorkspaceUrl.includes("?")?"&":"?";
+      currentWorkspaceUrl=currentWorkspaceUrl+sep+"session_token="+encodeURIComponent(currentSessionToken);
+    }
     renderStartupStatus(status);
     if(status.ready){
       $("#workspaceDot").classList.add("live");
@@ -597,6 +614,24 @@ $("#openWorkspace").onclick=()=>{
   if(currentWorkspaceUrl) window.open(currentWorkspaceUrl,"_blank");
 };
 
+$("#copySessionToken").onclick=async()=>{
+  if(!currentSessionToken){
+    const status=await get("/api/status");
+    currentSessionToken=status.session_token||"";
+  }
+  if(!currentSessionToken){
+    $("#launchError").textContent="No session token is available for this Pod.";
+    return;
+  }
+  try{
+    await navigator.clipboard.writeText(currentSessionToken);
+    $("#copySessionToken").textContent="Copied";
+    setTimeout(()=>{$("#copySessionToken").textContent="Copy session token"},1400);
+  }catch{
+    prompt("Copy this session token:",currentSessionToken);
+  }
+};
+
 $("#refreshSession").onclick=async()=>{
   $("#launchError").textContent="";
   try{
@@ -617,6 +652,7 @@ $("#terminateActive").onclick=async()=>{
     await post("/api/terminate-active");
     if(workspaceTab) workspaceTab.close();
     currentWorkspaceUrl="";
+    currentSessionToken="";
     $("#sessionControls").classList.remove("show");
     $("#ready").classList.remove("show");
     $("#podDot").classList.remove("live");
