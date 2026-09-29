@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 import secrets
 import stat
 import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
@@ -331,9 +333,12 @@ def _session_status_payload() -> dict[str, Any]:
     dashboard_url = str(session.get("dashboard_url") or STATE.get("dashboard_url") or "")
     ready = _probe_workspace(dashboard_url) if dashboard_url else False
 
+    progress = _progress_snapshot(session, ready) if session.get("pod_id") else {}
+
     return {
         **STATE,
         **session,
+        **progress,
         "ready": ready,
         "active": bool(session.get("pod_id")),
         "config_path": str(CONFIG_PATH),
@@ -372,6 +377,120 @@ def _terminate_active_session() -> dict[str, Any]:
 
     _clear_active_session()
     return {"ok": True, "pod_id": pod_id}
+
+
+
+def _seconds_since(iso_value: str | None) -> int | None:
+    if not iso_value:
+        return None
+    try:
+        started = datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        return max(0, int((datetime.now(timezone.utc) - started).total_seconds()))
+    except (TypeError, ValueError):
+        return None
+
+
+def _pod_runtime_telemetry(api_key: str, pod_id: str) -> dict[str, Any]:
+    query = f"""
+    query {{
+      pod(input: {{ podId: {json.dumps(pod_id)} }}) {{
+        id
+        name
+        runtime {{
+          uptimeInSeconds
+          gpus {{
+            gpuUtilPercent
+            memoryUtilPercent
+          }}
+          container {{
+            cpuPercent
+            memoryPercent
+          }}
+        }}
+      }}
+    }}
+    """
+    try:
+        response = run_graphql_query(query, api_key=api_key)
+        pod = response.get("data", {}).get("pod") or {}
+        runtime = pod.get("runtime")
+        if not runtime:
+            return {"runtime_reported": False}
+
+        gpus = runtime.get("gpus") or []
+        gpu = gpus[0] if gpus else {}
+        container = runtime.get("container") or {}
+
+        return {
+            "runtime_reported": True,
+            "container_uptime_seconds": int(runtime.get("uptimeInSeconds") or 0),
+            "gpu_util_percent": gpu.get("gpuUtilPercent"),
+            "gpu_memory_util_percent": gpu.get("memoryUtilPercent"),
+            "cpu_percent": container.get("cpuPercent"),
+            "container_memory_percent": container.get("memoryPercent"),
+        }
+    except Exception:
+        return {"runtime_reported": False, "telemetry_unavailable": True}
+
+
+def _progress_snapshot(session: dict[str, Any], ready: bool) -> dict[str, Any]:
+    saved = _read_config()
+    api_key = str(saved.get("runpod_api_key") or "").strip()
+    pod_id = str(session.get("pod_id") or "").strip()
+
+    telemetry = _pod_runtime_telemetry(api_key, pod_id) if api_key and pod_id else {"runtime_reported": False}
+
+    started_at = str(session.get("started_at") or "")
+    elapsed = _seconds_since(started_at)
+
+    if elapsed is None and telemetry.get("container_uptime_seconds"):
+        elapsed = int(telemetry["container_uptime_seconds"])
+
+    if elapsed is None and CONFIG_PATH.exists():
+        try:
+            elapsed = max(0, int(time.time() - CONFIG_PATH.stat().st_mtime))
+        except OSError:
+            elapsed = 0
+
+    elapsed = int(elapsed or 0)
+
+    if ready:
+        stage = "ready"
+        label = "Workspace ready"
+        detail = "The web application is responding."
+        progress = 100
+        eta = "Ready now"
+    elif telemetry.get("runtime_reported"):
+        stage = "application_start"
+        label = "Container running"
+        detail = "Runpod reports container telemetry. Waiting for UGC Factory health check."
+        progress = 82
+        eta = "Usually less than 1–2 minutes"
+    else:
+        stage = "platform_initializing"
+        label = "Initializing container"
+        detail = "No container telemetry yet. Runpod is typically pulling the image, creating the container or booting it."
+        if elapsed < 120:
+            progress = 35
+            eta = "Usually a few minutes"
+        elif elapsed < 480:
+            progress = 50
+            eta = "Still within a normal large-image startup window"
+        else:
+            progress = 55
+            eta = "Taking longer than expected · check Pod/system logs"
+
+    return {
+        "stage": stage,
+        "stage_label": label,
+        "stage_detail": detail,
+        "progress_percent": progress,
+        "eta_text": eta,
+        "elapsed_seconds": elapsed,
+        **telemetry,
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -558,6 +677,7 @@ class Handler(BaseHTTPRequestHandler):
                 "selected_vram": vram,
                 "active_session": {
                     "pod_id": result["pod_id"],
+                    "started_at": datetime.now(timezone.utc).isoformat(),
                     "dashboard_url": result["dashboard_url"],
                     "workspace_url": result["workspace_url"],
                     "selected_gpu": result.get("selected_gpu", gpu),
