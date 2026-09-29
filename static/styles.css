@@ -278,6 +278,8 @@ textarea{resize:vertical;min-height:138px;line-height:1.5}
   transition:border-color .15s,background .15s;
 }
 .drop:hover{background:#f7f7f5;border-color:#aaa}
+.drop.has-file{background:#f4f4f1;border-style:solid;border-color:#c9c9c4}
+.drop.has-file .drop-title{max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .drop-inner{text-align:center;pointer-events:none}
 .drop-title{display:block;font-size:12px;font-weight:600;color:#404040}
