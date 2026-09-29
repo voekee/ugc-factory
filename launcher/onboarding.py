@@ -7,7 +7,6 @@ import os
 import secrets
 import stat
 import threading
-import time
 import urllib.error
 import urllib.request
 import webbrowser
@@ -17,20 +16,18 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from runpod.api.graphql import run_graphql_query
+
 from runpod_launcher import launch_pod
 
-ROOT = Path(__file__).resolve().parents[1]
 UI_PATH = Path(__file__).with_name("onboarding.html")
 CONFIG_DIR = Path.home() / ".ugc-factory"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 DEFAULTS = {
     "image": "ghcr.io/voekee/ugc-factory:latest",
-    "gpu": "AUTO",
-    "cloud": "ALL",
-    "hours": 5.0,
+    "hours": 1.0,
     "disk": 180,
-    "rate": 0.99,
 }
 
 LOCAL_TOKEN = secrets.token_urlsafe(24)
@@ -44,18 +41,39 @@ STATE: dict[str, Any] = {
     "error": "",
 }
 
+GPU_QUERY = """
+query {
+  gpuTypes {
+    id
+    displayName
+    memoryInGb
+    secure: lowestPrice(input: { gpuCount: 1, secureCloud: true }) {
+      stockStatus
+      uninterruptablePrice
+      availableGpuCounts
+    }
+    community: lowestPrice(input: { gpuCount: 1, secureCloud: false }) {
+      stockStatus
+      uninterruptablePrice
+      availableGpuCounts
+    }
+  }
+}
+"""
+
 
 def _read_config() -> dict[str, Any]:
     if not CONFIG_PATH.exists():
         return {}
     try:
-        return json.loads(CONFIG_PATH.read_text())
+        value = json.loads(CONFIG_PATH.read_text())
+        return value if isinstance(value, dict) else {}
     except (OSError, json.JSONDecodeError):
         return {}
 
 
 def _write_config(config: dict[str, Any]) -> None:
-    config = {**config, "config_version": 2}
+    payload = {**config, "config_version": 3}
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(CONFIG_DIR, 0o700)
@@ -63,7 +81,7 @@ def _write_config(config: dict[str, Any]) -> None:
         pass
 
     tmp = CONFIG_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(config, indent=2) + "\n")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n")
     try:
         os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
     except OSError:
@@ -85,7 +103,6 @@ def _mask(value: str) -> str:
 
 def _public_config() -> dict[str, Any]:
     saved = _read_config()
-    legacy = int(saved.get("config_version", 1)) < 2
     return {
         "config_path": str(CONFIG_PATH),
         "runpod_saved": bool(saved.get("runpod_api_key")),
@@ -93,15 +110,45 @@ def _public_config() -> dict[str, Any]:
         "hf_saved": bool(saved.get("hf_token")),
         "hf_masked": _mask(str(saved.get("hf_token", ""))),
         "image": saved.get("image", DEFAULTS["image"]),
-        "gpu": DEFAULTS["gpu"] if legacy else saved.get("gpu", DEFAULTS["gpu"]),
-        "cloud": DEFAULTS["cloud"] if legacy else saved.get("cloud", DEFAULTS["cloud"]),
-        "hours": saved.get("hours", DEFAULTS["hours"]),
-        "disk": DEFAULTS["disk"] if legacy else saved.get("disk", DEFAULTS["disk"]),
-        "rate": saved.get("rate", DEFAULTS["rate"]),
+        "hours": float(saved.get("hours", DEFAULTS["hours"])),
+        "disk": int(saved.get("disk", DEFAULTS["disk"])),
+        "selected_gpu": saved.get("selected_gpu", ""),
+        "selected_cloud": saved.get("selected_cloud", ""),
+        "selected_price": saved.get("selected_price"),
+        "selected_vram": saved.get("selected_vram"),
     }
 
 
-def _merge_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _validate_runpod_key(api_key: str) -> None:
+    if not api_key:
+        raise ValueError("Runpod API key is required.")
+    run_graphql_query("query { myself { id } }", api_key=api_key)
+
+
+def _validate_hf_token(token: str) -> None:
+    if not token:
+        return
+
+    request = urllib.request.Request(
+        "https://huggingface.co/api/whoami-v2",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "UGC-Factory-Launcher/1.0",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            if response.status != 200:
+                raise ValueError("Hugging Face token could not be validated.")
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise ValueError("Hugging Face token is invalid or does not have access.") from exc
+        raise ValueError(f"Hugging Face validation failed: HTTP {exc.code}.") from exc
+    except urllib.error.URLError as exc:
+        raise ValueError("Could not reach Hugging Face to validate the token.") from exc
+
+
+def _credentials_from_payload(payload: dict[str, Any]) -> tuple[str, str]:
     saved = _read_config()
 
     runpod_key = str(payload.get("runpod_api_key") or "").strip()
@@ -112,31 +159,89 @@ def _merge_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not hf_token:
         hf_token = str(saved.get("hf_token") or "").strip()
 
-    config = {
+    return runpod_key, hf_token
+
+
+def _save_credentials(runpod_key: str, hf_token: str) -> dict[str, Any]:
+    current = _read_config()
+    updated = {
+        **current,
         "runpod_api_key": runpod_key,
         "hf_token": hf_token,
-        "image": str(payload.get("image") or saved.get("image") or DEFAULTS["image"]).strip(),
-        "gpu": str(payload.get("gpu") or saved.get("gpu") or DEFAULTS["gpu"]).strip(),
-        "cloud": str(payload.get("cloud") or saved.get("cloud") or DEFAULTS["cloud"]).strip().upper(),
-        "hours": float(payload.get("hours") or saved.get("hours") or DEFAULTS["hours"]),
-        "disk": int(payload.get("disk") or saved.get("disk") or DEFAULTS["disk"]),
-        "rate": float(payload.get("rate") if payload.get("rate") not in ("", None) else saved.get("rate", DEFAULTS["rate"])),
+        "image": current.get("image", DEFAULTS["image"]),
+        "hours": current.get("hours", DEFAULTS["hours"]),
+        "disk": current.get("disk", DEFAULTS["disk"]),
     }
+    _write_config(updated)
+    return updated
 
-    if not config["runpod_api_key"]:
-        raise ValueError("Runpod API key is required.")
-    if not config["image"]:
-        raise ValueError("Container image is required.")
-    if config["cloud"] not in {"ALL", "SECURE", "COMMUNITY"}:
-        raise ValueError("Cloud must be ALL, SECURE or COMMUNITY.")
-    if not 0.25 <= config["hours"] <= 24:
-        raise ValueError("Session length must be between 0.25 and 24 hours.")
-    if not 100 <= config["disk"] <= 1000:
-        raise ValueError("Ephemeral disk must be between 100 and 1000 GB.")
-    if config["rate"] < 0:
-        raise ValueError("Hourly display rate cannot be negative.")
 
-    return config
+def _stock_is_available(stock: Any, counts: Any) -> bool:
+    normalized = str(stock or "").strip().lower()
+    if normalized in {"", "none", "unavailable"}:
+        return False
+
+    if isinstance(counts, list) and counts:
+        try:
+            return 1 in [int(value) for value in counts]
+        except (TypeError, ValueError):
+            return True
+
+    return normalized in {"high", "medium", "low"}
+
+
+def _discover_gpu_offers(api_key: str) -> list[dict[str, Any]]:
+    response = run_graphql_query(GPU_QUERY, api_key=api_key)
+    gpu_types = response.get("data", {}).get("gpuTypes", []) or []
+
+    offers: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    for gpu in gpu_types:
+        gpu_id = str(gpu.get("id") or "")
+        if not gpu_id.startswith("NVIDIA "):
+            continue
+
+        try:
+            vram = int(gpu.get("memoryInGb") or 0)
+        except (TypeError, ValueError):
+            continue
+
+        if vram < 24:
+            continue
+
+        display_name = str(gpu.get("displayName") or gpu_id.replace("NVIDIA ", ""))
+
+        for field, cloud in (("community", "COMMUNITY"), ("secure", "SECURE")):
+            price_data = gpu.get(field) or {}
+            price = price_data.get("uninterruptablePrice")
+            stock = price_data.get("stockStatus")
+            counts = price_data.get("availableGpuCounts")
+
+            if price is None or not _stock_is_available(stock, counts):
+                continue
+
+            key = (gpu_id, cloud)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            try:
+                price_float = float(price)
+            except (TypeError, ValueError):
+                continue
+
+            offers.append({
+                "gpu_id": gpu_id,
+                "name": display_name,
+                "vram_gb": vram,
+                "cloud": cloud,
+                "price_per_hour": round(price_float, 4),
+                "stock": str(stock or "").upper(),
+            })
+
+    offers.sort(key=lambda item: (item["price_per_hour"], -item["vram_gb"], item["name"]))
+    return offers
 
 
 def _probe_workspace(url: str) -> bool:
@@ -150,7 +255,7 @@ def _probe_workspace(url: str) -> bool:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "UGCFactoryLauncher/1.0"
+    server_version = "UGCFactoryLauncher/2.0"
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -167,14 +272,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Access-Control-Allow-Origin", f"http://127.0.0.1:{self.server.server_port}")
-        self.send_header("Vary", "Origin")
         self.end_headers()
         self.wfile.write(raw)
 
     def _read_json(self) -> dict[str, Any]:
         size = int(self.headers.get("Content-Length", "0"))
-        if size <= 0 or size > 64 * 1024:
+        if size <= 0 or size > 128 * 1024:
             return {}
         return json.loads(self.rfile.read(size).decode())
 
@@ -203,6 +306,18 @@ class Handler(BaseHTTPRequestHandler):
             self._json(_public_config())
             return
 
+        if parsed.path == "/api/gpus":
+            try:
+                saved = _read_config()
+                api_key = str(saved.get("runpod_api_key") or "")
+                if not api_key:
+                    raise ValueError("Save a Runpod API key first.")
+                offers = _discover_gpu_offers(api_key)
+                self._json({"offers": offers})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 400)
+            return
+
         if parsed.path == "/api/status":
             ready = _probe_workspace(STATE["dashboard_url"]) if STATE["dashboard_url"] else False
             self._json({
@@ -219,6 +334,26 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._authorized():
             self._json({"error": "Unauthorized local launcher request."}, 403)
+            return
+
+        if parsed.path == "/api/credentials":
+            try:
+                payload = self._read_json()
+                runpod_key, hf_token = _credentials_from_payload(payload)
+
+                _validate_runpod_key(runpod_key)
+                _validate_hf_token(hf_token)
+                _save_credentials(runpod_key, hf_token)
+
+                self._json({
+                    "ok": True,
+                    "runpod_masked": _mask(runpod_key),
+                    "hf_masked": _mask(hf_token),
+                    "hf_saved": bool(hf_token),
+                    "config_path": str(CONFIG_PATH),
+                })
+            except Exception as exc:
+                self._json({"error": str(exc)}, 400)
             return
 
         if parsed.path == "/api/forget":
@@ -239,47 +374,78 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             payload = self._read_json()
-            config = _merge_payload(payload)
-            remember = bool(payload.get("remember", True))
+            saved = _read_config()
 
-            if remember:
-                _write_config(config)
+            runpod_key = str(saved.get("runpod_api_key") or "").strip()
+            hf_token = str(saved.get("hf_token") or "").strip()
+
+            if not runpod_key:
+                raise ValueError("Runpod API key is missing. Go back to Credentials.")
+
+            gpu = str(payload.get("gpu") or "").strip()
+            cloud = str(payload.get("cloud") or "").strip().upper()
+            if not gpu or cloud not in {"COMMUNITY", "SECURE"}:
+                raise ValueError("Choose an available GPU first.")
+
+            try:
+                vram = int(payload.get("vram"))
+                price = float(payload.get("price"))
+                hours = float(payload.get("hours"))
+                disk = int(payload.get("disk"))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Session settings are invalid.") from exc
+
+            if not 0.25 <= hours <= 24:
+                raise ValueError("Session length must be between 0.25 and 24 hours.")
+            if not 100 <= disk <= 1000:
+                raise ValueError("Ephemeral disk must be between 100 and 1000 GB.")
+            if price < 0:
+                raise ValueError("GPU price is invalid.")
+
+            image = str(payload.get("image") or saved.get("image") or DEFAULTS["image"]).strip()
 
             STATE.update({
                 "launching": True,
                 "pod_id": "",
                 "dashboard_url": "",
                 "workspace_url": "",
-                "selected_gpu": "",
-                "selected_cloud": "",
+                "selected_gpu": gpu,
+                "selected_cloud": cloud,
                 "error": "",
             })
 
             result = launch_pod(
-                api_key=config["runpod_api_key"],
-                image=config["image"],
-                gpu=config["gpu"],
-                cloud=config["cloud"],
-                hours=config["hours"],
-                disk=config["disk"],
-                hf_token=config["hf_token"],
-                rate=config["rate"],
+                api_key=runpod_key,
+                image=image,
+                gpu=gpu,
+                cloud=cloud,
+                hours=hours,
+                disk=disk,
+                hf_token=hf_token,
+                rate=price,
             )
+
+            _write_config({
+                **saved,
+                "image": image,
+                "hours": hours,
+                "disk": disk,
+                "selected_gpu": gpu,
+                "selected_cloud": cloud,
+                "selected_price": price,
+                "selected_vram": vram,
+            })
 
             STATE.update({
                 "launching": False,
                 "pod_id": result["pod_id"],
                 "dashboard_url": result["dashboard_url"],
                 "workspace_url": result["workspace_url"],
-                "selected_gpu": result.get("selected_gpu", ""),
-                "selected_cloud": result.get("selected_cloud", ""),
+                "selected_gpu": result.get("selected_gpu", gpu),
+                "selected_cloud": result.get("selected_cloud", cloud),
                 "error": "",
             })
-            self._json({
-                "ok": True,
-                **STATE,
-                "config_path": str(CONFIG_PATH),
-            })
+            self._json({"ok": True, **STATE})
         except Exception as exc:
             STATE.update({"launching": False, "error": str(exc)})
             self._json({"error": str(exc)}, 400)
@@ -298,7 +464,7 @@ def main() -> None:
     print("UGC Factory local launcher")
     print(f"Open: {url}")
     print(f"Local config: {CONFIG_PATH}")
-    print("Secrets stay on this computer and are never written to the repository.")
+    print("Credentials are saved locally and never written to the repository.")
 
     if not args.no_browser:
         threading.Timer(0.35, lambda: webbrowser.open(url)).start()
