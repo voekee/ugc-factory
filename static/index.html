@@ -10,151 +10,109 @@
 <body>
   <div id="auth" class="auth-screen">
     <div class="auth-shell">
-      <div class="brand">
-        <span class="brand-mark">UF</span>
-        <span class="brand-name">UGC Factory</span>
-      </div>
-
-      <div class="auth-copy">
-        <h1>Enter render session.</h1>
-        <p>Private access to this ephemeral workspace.</p>
-      </div>
-
+      <div class="brand"><span class="brand-mark">UF</span><span class="brand-name">UGC Factory</span></div>
+      <div class="auth-copy"><h1>Enter render session.</h1><p>Private access to this ephemeral workspace.</p></div>
       <div class="auth-form">
         <input id="token" type="password" placeholder="Session access token" autocomplete="off" />
-        <button id="login" class="button button-primary">Continue</button>
+        <button id="login" class="button button-dark">Continue</button>
       </div>
-
-      <p class="auth-footnote">The token is stored in this browser only.</p>
+      <p class="auth-footnote">The token stays in this browser only.</p>
     </div>
   </div>
 
-  <main id="app" class="app hidden">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark">UF</span>
-        <span class="brand-name">UGC Factory</span>
+  <div id="app" class="studio hidden">
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="side-logo">UF</div>
+        <button class="side-item active" title="Create">
+          <svg viewBox="0 0 24 24"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5zM8 8h8M8 12h8M8 16h5"/></svg>
+          <span>Create</span>
+        </button>
+        <button id="queueToggle" class="side-item" title="Queue">
+          <svg viewBox="0 0 24 24"><path d="M7 7h10M7 12h10M7 17h10M4 7h.01M4 12h.01M4 17h.01"/></svg>
+          <span>Queue</span><b id="queueBadge" class="side-badge hidden">0</b>
+        </button>
+        <button id="libraryNav" class="side-item" title="Library">
+          <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="m7 16 3.2-3.3 2.5 2.3 1.7-1.8L17 16M9 9.5h.01"/></svg>
+          <span>Library</span>
+        </button>
       </div>
-
-      <div class="session">
-        <div class="session-live"><span class="status-dot"></span><span>Live</span></div>
-        <div id="sessionText" class="session-meta">GPU session</div>
+      <div class="sidebar-bottom">
+        <button id="terminate" class="side-item danger-side" title="Terminate Pod">
+          <svg viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
+          <span>End</span>
+        </button>
       </div>
-    </header>
+    </aside>
 
-    <section class="workspace-head">
-      <div>
-        <p class="kicker">Render workspace</p>
-        <h1>Create video.</h1>
-      </div>
-      <p class="workspace-copy">Short-form vertical generation. Local models. One shared queue.</p>
-    </section>
-
-    <section class="workspace-grid">
-      <section class="surface composer">
-        <div class="section-head">
-          <div>
-            <p class="section-index">01</p>
-            <h2>Generation</h2>
-          </div>
-          <span class="section-meta">720 × 1280</span>
+    <main class="studio-main">
+      <header class="studio-header">
+        <div><h1>Create</h1><p>Generate short-form UGC video with local models.</p></div>
+        <div class="header-actions">
+          <div class="creator-control"><span>Creator</span><input id="owner" placeholder="Joshua" maxlength="40" /></div>
+          <div class="session-pill"><span class="live-dot"></span><span>Live</span><i></i><span id="sessionText">GPU session</span></div>
         </div>
+      </header>
 
-        <div class="field">
-          <label for="owner">Creator</label>
-          <input id="owner" placeholder="Mehmet / Joshua" maxlength="40" />
-        </div>
-
-        <div class="field">
-          <label>Model</label>
-          <div id="renderers" class="renderer-grid"></div>
-          <div id="rendererNote" class="note"></div>
-        </div>
-
-        <div class="frame-grid">
-          <div class="field">
-            <label>Start / reference frame</label>
-            <div class="drop">
-              <input id="startFrame" type="file" accept="image/*" />
-              <div class="drop-inner">
-                <span class="drop-title">Choose image</span>
-                <span class="drop-meta">PNG, JPG or WEBP</span>
-              </div>
-            </div>
-          </div>
-
-          <div id="endFrameWrap" class="field">
-            <label>End frame <span class="label-muted">Optional</span></label>
-            <div class="drop">
-              <input id="endFrame" type="file" accept="image/*" />
-              <div class="drop-inner">
-                <span class="drop-title">Choose image</span>
-                <span class="drop-meta">Native where supported</span>
-              </div>
-            </div>
+      <section id="librarySection" class="media-stage">
+        <div class="stage-head">
+          <div><span class="stage-kicker">Session library</span><h2>Your renders</h2></div>
+          <div class="stage-actions">
+            <button id="selectAll" class="button button-light">Select ready</button>
+            <button id="downloadSelected" class="button button-light">Download selected</button>
           </div>
         </div>
-
-        <div class="field">
-          <label for="prompt">Prompt</label>
-          <textarea id="prompt" rows="6" placeholder="Describe the action, motion and camera behavior. Keep the shot simple."></textarea>
+        <div id="gallery" class="media-grid">
+          <div class="empty-gallery"><div class="empty-icon">UF</div><strong>No renders yet</strong><span>Your first generation will appear here.</span></div>
         </div>
-
-        <div class="controls-row">
-          <div class="field field-grow">
-            <label>Duration</label>
-            <div id="durations" class="chips"></div>
-          </div>
-
-          <div class="field variations-field">
-            <label for="variations">Variations</label>
-            <input id="variations" type="number" min="1" max="100" value="10" />
-          </div>
-        </div>
-
-        <button id="generate" class="button button-primary button-large">Queue generation</button>
-        <div id="formError" class="error"></div>
       </section>
 
-      <aside class="surface queue-panel">
-        <div class="section-head">
-          <div>
-            <p class="section-index">02</p>
-            <h2>Queue</h2>
+      <section class="composer-wrap">
+        <div class="composer-card">
+          <div class="composer-modebar"><span class="mode-label">Video</span><span class="format-label">9:16 · 720p</span></div>
+          <div class="frames-row">
+            <label class="frame-drop" id="startDrop">
+              <input id="startFrame" type="file" accept="image/*" />
+              <img id="startPreview" class="frame-preview hidden" alt="" />
+              <span class="frame-plus">＋</span><strong>Start frame</strong><small>Drop or click · required</small>
+            </label>
+            <label class="frame-drop" id="endFrameWrap">
+              <input id="endFrame" type="file" accept="image/*" />
+              <img id="endPreview" class="frame-preview hidden" alt="" />
+              <span class="frame-plus">＋</span><strong>End frame</strong><small id="endFrameMeta">Drop or click · optional</small>
+            </label>
           </div>
-          <span id="queueCount" class="section-meta">0 active</span>
+          <div class="prompt-shell"><textarea id="prompt" rows="3" placeholder="Describe the motion, action and camera behavior…"></textarea></div>
+          <div class="composer-footer">
+            <div class="composer-left"><div id="renderers" class="model-switcher"></div><div id="durations" class="duration-switcher"></div></div>
+            <div class="composer-right">
+              <div class="variations-control">
+                <button id="variationMinus" type="button">−</button>
+                <input id="variations" type="number" min="1" max="100" value="1" />
+                <button id="variationPlus" type="button">＋</button>
+              </div>
+              <button id="generate" class="generate-button">Generate</button>
+            </div>
+          </div>
+          <div class="composer-meta"><span id="rendererNote">Local renderer</span><span id="formError" class="composer-error"></span></div>
         </div>
-        <div id="queue" class="queue"></div>
-      </aside>
-    </section>
+      </section>
 
-    <section class="surface library">
-      <div class="section-head">
-        <div>
-          <p class="section-index">03</p>
-          <h2>Library</h2>
-        </div>
-        <div class="actions">
-          <button id="selectAll" class="button button-secondary">Select ready</button>
-          <button id="downloadSelected" class="button button-secondary">Download selected</button>
-        </div>
+      <footer class="studio-footer">
+        <span>Ephemeral session. Download what you want to keep.</span>
+        <button id="footerTerminate" class="text-danger">Terminate Pod</button>
+      </footer>
+    </main>
+
+    <div id="queueBackdrop" class="drawer-backdrop hidden"></div>
+    <aside id="queueDrawer" class="queue-drawer">
+      <div class="drawer-head">
+        <div><span>Render queue</span><strong id="queueCount">0 active</strong></div>
+        <button id="queueClose" class="icon-button">×</button>
       </div>
-      <div id="gallery" class="gallery"></div>
-    </section>
-
-    <section class="session-end">
-      <div>
-        <p class="session-end-title">End session</p>
-        <p class="session-end-copy">Terminate only after the queue is clear and every file you want has been downloaded.</p>
-      </div>
-      <button id="terminate" class="button button-danger">Terminate Pod</button>
-    </section>
-
-    <footer class="footer">
-      <span>UGC Factory</span>
-      <span>Ephemeral by design.</span>
-    </footer>
-  </main>
+      <div id="queue" class="queue-list"><div class="queue-empty">No active renders.</div></div>
+    </aside>
+  </div>
 
   <script src="/static/app.js"></script>
 </body>
