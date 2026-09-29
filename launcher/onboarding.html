@@ -78,7 +78,7 @@
       <div class="card-head" style="margin-top:28px">
         <div>
           <h2>Session</h2>
-          <p>Defaults are tuned for a normal production session.</p>
+          <p>Auto GPU is recommended. It tries several suitable cards and both Runpod cloud pools until one is actually available.</p>
         </div>
         <span class="number">02</span>
       </div>
@@ -91,11 +91,14 @@
       <div class="field">
         <label>GPU</label>
         <select id="gpu">
+          <option value="AUTO">Auto GPU — recommended</option>
           <option>NVIDIA GeForce RTX 5090</option>
           <option>NVIDIA RTX 6000 Ada Generation</option>
           <option>NVIDIA L40S</option>
+          <option>NVIDIA RTX A6000</option>
+          <option>NVIDIA A40</option>
           <option>NVIDIA A100 80GB PCIe</option>
-          <option>NVIDIA H100 PCIe</option>
+          <option>NVIDIA GeForce RTX 4090</option>
         </select>
       </div>
 
@@ -106,7 +109,7 @@
         </div>
         <div class="field">
           <label>Disk GB</label>
-          <input id="disk" type="number" min="100" max="1000" step="10" value="350">
+          <input id="disk" type="number" min="100" max="1000" step="10" value="180">
         </div>
         <div class="field">
           <label>Display $/h</label>
@@ -118,9 +121,9 @@
         <div class="field">
           <label>Cloud</label>
           <select id="cloud">
-            <option value="COMMUNITY">Community</option>
-            <option value="SECURE">Secure</option>
-            <option value="ALL">Any</option>
+            <option value="ALL">Auto — Community + Secure</option>
+            <option value="COMMUNITY">Community only</option>
+            <option value="SECURE">Secure only</option>
           </select>
         </div>
         <div class="field">
@@ -147,7 +150,7 @@
         <span class="spinner"></span>
       </div>
 
-      <div class="launch-row"><span id="podDot" class="dot"></span><div class="launch-copy"><b>Create GPU Pod</b><span id="podText">Waiting…</span></div></div>
+      <div class="launch-row"><span id="podDot" class="dot"></span><div class="launch-copy"><b>Find & create GPU Pod</b><span id="podText">Waiting…</span></div></div>
       <div class="launch-row"><span id="workspaceDot" class="dot"></span><div class="launch-copy"><b>Start workspace</b><span id="workspaceText">Waiting for the container…</span></div></div>
 
       <div id="done" class="done">
