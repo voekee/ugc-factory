@@ -23,7 +23,37 @@ class CommandRenderer(Renderer):
             "UGC_END_FRAME": str(req.end_frame or ""),
             "UGC_OUTPUT": str(req.output_path),
         })
+
         req.output_path.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(shlex.split(self.command), check=True, env=env)
+
+        proc = subprocess.run(
+            shlex.split(self.command),
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        if proc.returncode != 0:
+            stdout = (proc.stdout or "").strip()
+            stderr = (proc.stderr or "").strip()
+
+            details = []
+            if stderr:
+                details.append("stderr:\n" + stderr[-7000:])
+            if stdout:
+                details.append("stdout:\n" + stdout[-5000:])
+
+            message = "\n\n".join(details) or "No renderer output was captured."
+            raise RuntimeError(
+                f"Renderer {self.id} failed with exit code {proc.returncode}.\n\n{message}"
+            )
+
         if not req.output_path.exists() or req.output_path.stat().st_size < 1024:
-            raise RuntimeError(f"Renderer {self.id} exited without producing a valid output")
+            stdout = (proc.stdout or "").strip()
+            stderr = (proc.stderr or "").strip()
+            diagnostics = "\n".join(part for part in [stderr[-3000:], stdout[-3000:]] if part)
+            raise RuntimeError(
+                f"Renderer {self.id} exited without producing a valid output."
+                + (f"\n\n{diagnostics}" if diagnostics else "")
+            )
