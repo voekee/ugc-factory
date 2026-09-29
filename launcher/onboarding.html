@@ -37,7 +37,7 @@
 
     <p class="eyebrow">First-run setup</p>
     <h1>Start a render session.</h1>
-    <p class="lead">Connect your own Runpod account once. Your keys stay on this computer. After setup, this page creates the temporary GPU and opens the render workspace for you.</p>
+    <p class="lead">Connect your own Runpod account once. Keys are remembered only on this computer, then passed to the temporary Pod only when the session needs them. The workspace opens automatically.</p>
 
     <div class="steps"><span class="step active"></span><span class="step active"></span><span class="step active"></span></div>
 
@@ -134,7 +134,7 @@
         <button id="launch" class="button primary">Start GPU</button>
       </div>
 
-      <p class="footer-note">Saved keys go to <span id="configPath">~/.ugc-factory/config.json</span> with owner-only file permissions. They are never written to this Git repository. The hourly rate is display-only; Runpod controls the real price.</p>
+      <p class="footer-note">Saved keys go to <span id="configPath">~/.ugc-factory/config.json</span> with owner-only file permissions. They are never written to this Git repository or browser storage. Session credentials are injected into the ephemeral Pod when required and disappear with the Pod. The hourly rate is display-only; Runpod controls the real price.</p>
       <p id="setupError" class="error"></p>
     </section>
 
