@@ -1,0 +1,11 @@
+.env
+.venv/
+.venv-launcher/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+*.sqlite3
+ugc-factory-data/
+outputs/
+models/
