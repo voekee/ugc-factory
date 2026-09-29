@@ -56,6 +56,8 @@
     .button:hover{background:#f8f8f6}
     .button.primary{background:#111;border-color:#111;color:#fff}
     .button.primary:hover{background:#292929}
+    .button.danger{color:var(--danger);border-color:#e8c7c3;background:#fff}
+    .button.danger:hover{background:#fff7f6}
     .button[disabled]{opacity:.45;cursor:not-allowed}
     .actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:20px}
     .text-button{border:0;background:transparent;padding:0;color:#777;font-size:11px;text-decoration:underline;text-underline-offset:3px}
@@ -121,6 +123,10 @@
     .ready.show{display:block}
     .ready b{font-size:12px;color:#245c41}
     .ready p{margin:5px 0 0;color:#5f7668;font-size:10px;line-height:1.5}
+    .session-warning{margin-top:14px;padding:12px 13px;border:1px solid #eadfbd;border-radius:9px;background:#fffdf5;color:#785f13;font-size:10px;line-height:1.5}
+    .session-controls{display:none;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
+    .session-controls.show{display:flex}
+    .session-controls .left{display:flex;gap:8px}
     .footer{display:flex;justify-content:space-between;gap:20px;margin-top:24px;color:#999;font-size:10px}
     @media(max-width:680px){
       .shell{padding-top:24px}.top{margin-bottom:44px}.progress-label{display:none}h1{font-size:38px}
@@ -271,7 +277,15 @@
         <div class="launch-row"><span id="podDot" class="status-dot"></span><div><b>Reserve GPU</b><span id="podText">Creating Pod…</span></div></div>
         <div class="launch-row"><span id="workspaceDot" class="status-dot"></span><div><b>Start workspace</b><span id="workspaceText">Waiting for the container…</span></div></div>
       </div>
-      <div id="ready" class="ready"><b>Workspace ready.</b><p>A new tab has been opened. Your session token was passed automatically.</p></div>
+      <div id="ready" class="ready"><b>Workspace ready.</b><p>Your render workspace is responding and can be opened safely.</p></div>
+      <div class="session-warning">Closing or refreshing this browser tab does not stop the GPU. Billing stops only when the Runpod Pod is terminated.</div>
+      <div id="sessionControls" class="session-controls">
+        <div class="left">
+          <button id="openWorkspace" class="button primary">Open workspace</button>
+          <button id="refreshSession" class="button">Refresh status</button>
+        </div>
+        <button id="terminateActive" class="button danger">Terminate Pod</button>
+      </div>
       <div id="launchError" class="error"></div>
       <div id="launchRetry" class="actions" style="display:none"><button id="findAnother" class="button">Find another GPU</button></div>
     </div>
@@ -292,6 +306,7 @@ let gpuOffers=[];
 let selectedOffer=null;
 let selectedHours=1;
 let workspaceTab=null;
+let currentWorkspaceUrl="";
 
 async function get(path){
   const response=await fetch(path,{headers:{"X-Launcher-Token":TOKEN}});
@@ -426,6 +441,30 @@ async function saveCredentials(){
   }
 }
 
+function renderActiveSession(status){
+  if(!status || !status.active) return false;
+
+  go(4);
+  $("#podDot").classList.add("live");
+  const gpu=status.selected_gpu || "GPU";
+  const cloud=status.selected_cloud ? " · "+(status.selected_cloud==="COMMUNITY"?"Community":"Secure") : "";
+  $("#podText").textContent=gpu+" running"+cloud;
+  $("#sessionControls").classList.add("show");
+
+  currentWorkspaceUrl=status.workspace_url||"";
+
+  if(status.ready){
+    $("#workspaceDot").classList.add("live");
+    $("#workspaceText").textContent="Workspace is responding";
+    $("#ready").classList.add("show");
+  }else{
+    $("#workspaceText").textContent="Pod is active · waiting for workspace";
+    $("#ready").classList.remove("show");
+  }
+
+  return true;
+}
+
 async function startSession(){
   if(!selectedOffer) return;
   $("#sessionError").textContent="";
@@ -448,7 +487,9 @@ async function startSession(){
     });
 
     $("#podDot").classList.add("live");
-    $("#podText").textContent=`${selectedOffer.name} reserved · ${selectedOffer.cloud==="COMMUNITY"?"Community":"Secure"} · $${Number(selectedOffer.price_per_hour).toFixed(2)}/h`;
+    $("#podText").textContent=`${selectedOffer.name} reserved · ${selectedOffer.cloud==="COMMUNITY"?"Community":"Secure"} · ${Number(selectedOffer.price_per_hour).toFixed(2)}/h`;
+    $("#sessionControls").classList.add("show");
+    currentWorkspaceUrl=result.workspace_url||"";
     await pollWorkspace();
   }catch(error){
     if(workspaceTab) workspaceTab.close();
@@ -461,12 +502,16 @@ async function pollWorkspace(){
   for(let i=0;i<240;i++){
     const status=await get("/api/status");
     if(status.error) throw new Error(status.error);
+    if(!status.active){
+      throw new Error("The Runpod Pod is no longer active.");
+    }
+    currentWorkspaceUrl=status.workspace_url||currentWorkspaceUrl;
     if(status.ready){
       $("#workspaceDot").classList.add("live");
       $("#workspaceText").textContent="Workspace is responding";
       $("#ready").classList.add("show");
-      if(workspaceTab) workspaceTab.location=status.workspace_url;
-      else window.open(status.workspace_url,"_blank");
+      $("#sessionControls").classList.add("show");
+      if(workspaceTab) workspaceTab.location=currentWorkspaceUrl;
       return;
     }
     await new Promise(resolve=>setTimeout(resolve,3000));
@@ -482,6 +527,46 @@ $("#sortGpu").onchange=filterOffers;
 $("#continueGpu").onclick=()=>{updateSessionSummary();go(3)};
 $("#startSession").onclick=startSession;
 $("#findAnother").onclick=async()=>{$("#launchError").textContent="";$("#launchRetry").style.display="none";selectedOffer=null;$("#gpuSelection").style.display="none";go(2);await loadGpus()};
+
+$("#openWorkspace").onclick=()=>{
+  if(currentWorkspaceUrl) window.open(currentWorkspaceUrl,"_blank");
+};
+
+$("#refreshSession").onclick=async()=>{
+  $("#launchError").textContent="";
+  try{
+    const status=await get("/api/status");
+    if(!renderActiveSession(status)){
+      $("#launchError").textContent="No active Runpod session was found.";
+    }
+  }catch(error){
+    $("#launchError").textContent=error.message;
+  }
+};
+
+$("#terminateActive").onclick=async()=>{
+  if(!confirm("Terminate the active Runpod Pod now? This stops compute billing and permanently deletes the Pod-local files.")) return;
+  $("#terminateActive").disabled=true;
+  $("#terminateActive").textContent="Terminating…";
+  try{
+    await post("/api/terminate-active");
+    if(workspaceTab) workspaceTab.close();
+    currentWorkspaceUrl="";
+    $("#sessionControls").classList.remove("show");
+    $("#ready").classList.remove("show");
+    $("#podDot").classList.remove("live");
+    $("#workspaceDot").classList.remove("live");
+    $("#podText").textContent="Pod terminated";
+    $("#workspaceText").textContent="No active workspace";
+    $("#launchError").textContent="Pod terminated. Runpod compute billing for this Pod has been stopped.";
+    $("#launchRetry").style.display="flex";
+  }catch(error){
+    $("#launchError").textContent=error.message;
+  }finally{
+    $("#terminateActive").disabled=false;
+    $("#terminateActive").textContent="Terminate Pod";
+  }
+};
 
 document.querySelectorAll(".back").forEach(button=>button.onclick=()=>go(Number(button.dataset.to)));
 
@@ -517,6 +602,14 @@ async function bootstrap(){
     $("#hfSavedBadge").textContent=bootstrapData.hf_masked+" saved";
     $("#savedHf").textContent=bootstrapData.hf_masked;
   }
+
+  try{
+    const status=await get("/api/status");
+    if(renderActiveSession(status)){
+      if(!status.ready) pollWorkspace().catch(error=>{$("#launchError").textContent=error.message});
+      return;
+    }
+  }catch{}
 
   if(bootstrapData.runpod_saved){
     $("#savedCredentials").classList.add("show");
