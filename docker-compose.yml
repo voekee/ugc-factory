@@ -1,0 +1,8 @@
+services:
+  ugc-factory:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      APP_ACCESS_TOKEN: dev
+      UGC_RENDERER_MODE: mock
+      DATA_DIR: /tmp/ugc-factory-data
