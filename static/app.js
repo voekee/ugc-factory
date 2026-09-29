@@ -407,8 +407,8 @@ function drawJobs(jobs) {
     }
 
     return '<article class="media-card">' +
-      '<div class="media-thumb"><video controls preload="metadata" src="/api/jobs/' +
-      job.id + '/video?token=' + qsToken() + '"></video></div>' +
+      '<div class="media-thumb"><video class="result-video" controls playsinline preload="none" data-job-id="' +
+      job.id + '"></video></div>' +
       '<div class="media-card-footer">' +
         '<div class="media-card-row"><strong>' + esc(job.owner) + '</strong><span>' +
         esc(job.renderer) + ' · ' + job.duration + 's</span></div>' +
@@ -423,6 +423,43 @@ function drawJobs(jobs) {
       checkbox.checked ? selected.add(checkbox.dataset.id) : selected.delete(checkbox.dataset.id);
     };
   });
+
+  hydrateResultVideos();
+}
+
+async function hydrateResultVideos() {
+  const videos = Array.from(document.querySelectorAll('.result-video'));
+
+  for (const video of videos) {
+    if (video.dataset.loaded === '1') continue;
+    video.dataset.loaded = '1';
+
+    const jobId = video.dataset.jobId;
+
+    try {
+      const response = await fetch('/api/jobs/' + jobId + '/video?token=' + qsToken(), {
+        cache: 'no-store'
+      });
+
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+
+      video.src = objectUrl;
+      video.load();
+
+      video.addEventListener('loadedmetadata', () => {
+        if (video.duration && Number.isFinite(video.duration)) {
+          video.dataset.duration = video.duration.toFixed(2);
+        }
+      }, {once:true});
+
+      video.addEventListener('emptied', () => URL.revokeObjectURL(objectUrl), {once:true});
+    } catch (error) {
+      video.outerHTML = '<div class="video-preview-error">Preview failed. Download the MP4 to inspect it.</div>';
+    }
+  }
 }
 
 $('#selectAll').onclick = () => {
