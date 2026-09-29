@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.venv
+.testvenv
+__pycache__
+.pytest_cache
+*.pyc
+*.sqlite3
+ugc-factory-data
+outputs
+inputs
+models
+*.zip
+.DS_Store
