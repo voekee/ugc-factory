@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>UGC Factory Setup</title>
+  <style>
+    :root{--bg:#f7f7f5;--surface:#fff;--text:#111;--muted:#737373;--line:#e5e5e1;--strong:#d0d0cb;--success:#18794e;--danger:#b42318}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+    button,input,select{font:inherit}.shell{width:min(760px,calc(100% - 32px));margin:0 auto;padding:42px 0 80px}
+    .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:72px}.brand{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:650}.mark{width:28px;height:28px;border-radius:7px;background:#111;color:#fff;display:grid;place-items:center;font-size:10px;font-weight:700}
+    .local{font-size:11px;color:var(--muted)}.eyebrow{margin:0 0 10px;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:700}
+    h1{margin:0;font-size:46px;line-height:1;letter-spacing:-.05em;font-weight:620}.lead{max-width:560px;margin:16px 0 42px;color:var(--muted);font-size:15px;line-height:1.55}
+    .steps{display:flex;gap:8px;margin-bottom:14px}.step{height:3px;flex:1;border-radius:2px;background:#deded9}.step.active{background:#111}
+    .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:26px}.card-head{display:flex;justify-content:space-between;gap:20px;padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid var(--line)}
+    .card-head h2{margin:0;font-size:18px;letter-spacing:-.025em}.card-head p{margin:5px 0 0;color:var(--muted);font-size:12px;line-height:1.5}.number{color:#a3a3a0;font-size:11px;font-weight:700}
+    .field{margin-bottom:18px}.field label{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-size:12px;font-weight:600}.hint{color:#999;font-size:10px;font-weight:500}
+    input,select{width:100%;height:44px;border:1px solid var(--strong);border-radius:8px;background:#fff;padding:0 12px;outline:none;color:#111}input:focus,select:focus{border-color:#8d8d88;box-shadow:0 0 0 3px rgba(17,17,17,.045)}
+    .secret-wrap{position:relative}.secret-wrap input{padding-right:72px}.saved{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:10px;color:var(--success);font-weight:650}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.row.three{grid-template-columns:1fr 1fr 1fr}
+    .explain{display:flex;gap:12px;padding:14px 0;border-top:1px solid var(--line);margin-top:8px}.explain:first-of-type{border-top:0}.explain b{display:block;font-size:12px;margin-bottom:3px}.explain span{color:var(--muted);font-size:11px;line-height:1.45}.key{width:24px;height:24px;flex:0 0 24px;border:1px solid var(--line);border-radius:6px;display:grid;place-items:center;font-size:10px;color:#555}
+    .actions{display:flex;justify-content:space-between;align-items:center;margin-top:20px}.button{border:1px solid var(--strong);border-radius:8px;background:#fff;color:#222;padding:11px 15px;cursor:pointer;font-weight:600;font-size:12px}.button:hover{background:#f8f8f6}.button.primary{background:#111;border-color:#111;color:#fff}.button.primary:hover{background:#2a2a2a}.button[disabled]{opacity:.45;cursor:not-allowed}
+    .remember{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px}.remember input{width:14px;height:14px}.footer-note{margin-top:14px;color:#999;font-size:10px;line-height:1.5}
+    .error{margin-top:14px;color:var(--danger);font-size:11px;line-height:1.5}.success{color:var(--success)}
+    .launching{display:none}.launching.show{display:block}.launch-row{display:flex;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)}.launch-row:last-child{border-bottom:0}.dot{width:8px;height:8px;border-radius:50%;background:#bbb}.dot.live{background:var(--success)}.spinner{width:14px;height:14px;border:2px solid #ddd;border-top-color:#111;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.launch-copy b{display:block;font-size:12px}.launch-copy span{color:var(--muted);font-size:10px}
+    .done{display:none}.done.show{display:block}.done-box{padding:18px;border:1px solid #cfe7da;background:#f6fbf8;border-radius:8px}.done-box b{font-size:13px}.done-box p{margin:5px 0 0;color:#557363;font-size:11px;line-height:1.5}
+    .link{color:#111}.muted-link{color:#666;text-decoration:underline;text-underline-offset:2px;cursor:pointer;background:none;border:0;padding:0;font-size:10px}
+    @media(max-width:640px){.shell{padding-top:24px}.top{margin-bottom:48px}h1{font-size:38px}.row,.row.three{grid-template-columns:1fr}.card{padding:20px}.actions{align-items:flex-start;gap:16px;flex-direction:column}.button.primary{width:100%}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="top">
+      <div class="brand"><span class="mark">UF</span><span>UGC Factory</span></div>
+      <div class="local">Local launcher · 127.0.0.1</div>
+    </div>
+
+    <p class="eyebrow">First-run setup</p>
+    <h1>Start a render session.</h1>
+    <p class="lead">Connect your own Runpod account once. Your keys stay on this computer. After setup, this page creates the temporary GPU and opens the render workspace for you.</p>
+
+    <div class="steps"><span class="step active"></span><span class="step active"></span><span class="step active"></span></div>
+
+    <section class="card" id="setupCard">
+      <div class="card-head">
+        <div>
+          <h2>Connection</h2>
+          <p>Two keys. One is required. One unlocks LTX-2.5.</p>
+        </div>
+        <span class="number">01</span>
+      </div>
+
+      <div class="field">
+        <label>Runpod API key <span class="hint">Required</span></label>
+        <div class="secret-wrap">
+          <input id="runpodKey" type="password" placeholder="Paste your Runpod API key">
+          <span id="runpodSaved" class="saved"></span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Hugging Face token <span class="hint">Required for LTX-2.5</span></label>
+        <div class="secret-wrap">
+          <input id="hfToken" type="password" placeholder="hf_...">
+          <span id="hfSaved" class="saved"></span>
+        </div>
+      </div>
+
+      <div class="explain">
+        <div class="key">R</div>
+        <div><b>Runpod key</b><span>Lets this local launcher create and terminate GPUs in your Runpod account. Create one in Runpod's API settings.</span></div>
+      </div>
+      <div class="explain">
+        <div class="key">HF</div>
+        <div><b>Hugging Face token</b><span>Used only inside the temporary Pod when gated LTX weights need to download. A read token is enough after model access is approved.</span></div>
+      </div>
+
+      <div class="card-head" style="margin-top:28px">
+        <div>
+          <h2>Session</h2>
+          <p>Defaults are tuned for a normal production session.</p>
+        </div>
+        <span class="number">02</span>
+      </div>
+
+      <div class="field">
+        <label>Container image</label>
+        <input id="image" value="ghcr.io/voekee/ugc-factory:latest">
+      </div>
+
+      <div class="field">
+        <label>GPU</label>
+        <select id="gpu">
+          <option>NVIDIA GeForce RTX 5090</option>
+          <option>NVIDIA RTX 6000 Ada Generation</option>
+          <option>NVIDIA L40S</option>
+          <option>NVIDIA A100 80GB PCIe</option>
+          <option>NVIDIA H100 PCIe</option>
+        </select>
+      </div>
+
+      <div class="row three">
+        <div class="field">
+          <label>Hours</label>
+          <input id="hours" type="number" min=".25" max="24" step=".25" value="5">
+        </div>
+        <div class="field">
+          <label>Disk GB</label>
+          <input id="disk" type="number" min="100" max="1000" step="10" value="350">
+        </div>
+        <div class="field">
+          <label>Display $/h</label>
+          <input id="rate" type="number" min="0" step=".01" value=".99">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Cloud</label>
+          <select id="cloud">
+            <option value="COMMUNITY">Community</option>
+            <option value="SECURE">Secure</option>
+            <option value="ALL">Any</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Storage</label>
+          <input value="Ephemeral only · no Network Volume" disabled>
+        </div>
+      </div>
+
+      <div class="actions">
+        <label class="remember"><input id="remember" type="checkbox" checked> Save keys on this computer</label>
+        <button id="launch" class="button primary">Start GPU</button>
+      </div>
+
+      <p class="footer-note">Saved keys go to <span id="configPath">~/.ugc-factory/config.json</span> with owner-only file permissions. They are never written to this Git repository. The hourly rate is display-only; Runpod controls the real price.</p>
+      <p id="setupError" class="error"></p>
+    </section>
+
+    <section class="card launching" id="launchingCard" style="margin-top:14px">
+      <div class="card-head">
+        <div>
+          <h2>Starting session</h2>
+          <p>You can leave this tab open. The workspace will open when the Pod is ready.</p>
+        </div>
+        <span class="spinner"></span>
+      </div>
+
+      <div class="launch-row"><span id="podDot" class="dot"></span><div class="launch-copy"><b>Create GPU Pod</b><span id="podText">Waiting…</span></div></div>
+      <div class="launch-row"><span id="workspaceDot" class="dot"></span><div class="launch-copy"><b>Start workspace</b><span id="workspaceText">Waiting for the container…</span></div></div>
+
+      <div id="done" class="done">
+        <div class="done-box">
+          <b>Workspace ready.</b>
+          <p>The render app is open in the new tab. This local launcher can stay open or be closed after the session starts.</p>
+        </div>
+      </div>
+    </section>
+
+    <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+      <span class="footer-note">Keys are stored locally only when “Save keys” is enabled.</span>
+      <button id="forget" class="muted-link">Forget saved keys</button>
+    </div>
+  </main>
+
+<script>
+const TOKEN="__LAUNCHER_TOKEN__";
+const headers={"Content-Type":"application/json","X-Launcher-Token":TOKEN};
+const $=s=>document.querySelector(s);
+let workspaceTab=null;
+
+async function get(path){
+  const r=await fetch(path,{headers:{"X-Launcher-Token":TOKEN}});
+  return r.json();
+}
+async function post(path,body={}){
+  const r=await fetch(path,{method:"POST",headers,body:JSON.stringify(body)});
+  const data=await r.json();
+  if(!r.ok) throw new Error(data.error||"Request failed");
+  return data;
+}
+
+async function bootstrap(){
+  const cfg=await get("/api/bootstrap");
+  $("#configPath").textContent=cfg.config_path;
+  $("#runpodSaved").textContent=cfg.runpod_saved?cfg.runpod_masked:"";
+  $("#hfSaved").textContent=cfg.hf_saved?cfg.hf_masked:"";
+  $("#image").value=cfg.image;
+  $("#gpu").value=cfg.gpu;
+  $("#cloud").value=cfg.cloud;
+  $("#hours").value=cfg.hours;
+  $("#disk").value=cfg.disk;
+  $("#rate").value=cfg.rate;
+}
+
+async function pollReady(){
+  for(let i=0;i<240;i++){
+    const status=await get("/api/status");
+    if(status.pod_id){
+      $("#podDot").classList.add("live");
+      $("#podText").textContent="Pod "+status.pod_id+" created";
+    }
+    if(status.error) throw new Error(status.error);
+    if(status.ready){
+      $("#workspaceDot").classList.add("live");
+      $("#workspaceText").textContent="Workspace is responding";
+      $("#done").classList.add("show");
+      if(workspaceTab) workspaceTab.location=status.workspace_url;
+      else window.open(status.workspace_url,"_blank");
+      return;
+    }
+    await new Promise(r=>setTimeout(r,3000));
+  }
+  throw new Error("Pod was created, but the workspace did not become ready in time.");
+}
+
+$("#launch").onclick=async()=>{
+  $("#setupError").textContent="";
+  $("#launch").disabled=true;
+  $("#launch").textContent="Starting…";
+  $("#launchingCard").classList.add("show");
+
+  workspaceTab=window.open("about:blank","ugcFactoryWorkspace");
+  if(workspaceTab){
+    workspaceTab.document.write("<title>UGC Factory</title><body style='font-family:-apple-system;background:#f7f7f5;color:#111;display:grid;place-items:center;height:100vh;margin:0'><div style='text-align:center'><b>Starting UGC Factory</b><div style='color:#777;font-size:13px;margin-top:8px'>Waiting for the GPU workspace…</div></div></body>");
+  }
+
+  try{
+    const result=await post("/api/launch",{
+      runpod_api_key:$("#runpodKey").value,
+      hf_token:$("#hfToken").value,
+      image:$("#image").value,
+      gpu:$("#gpu").value,
+      cloud:$("#cloud").value,
+      hours:$("#hours").value,
+      disk:$("#disk").value,
+      rate:$("#rate").value,
+      remember:$("#remember").checked
+    });
+    $("#podDot").classList.add("live");
+    $("#podText").textContent="Pod "+result.pod_id+" created";
+    await pollReady();
+  }catch(error){
+    $("#setupError").textContent=error.message;
+    $("#launch").disabled=false;
+    $("#launch").textContent="Start GPU";
+    if(workspaceTab) workspaceTab.close();
+  }
+};
+
+$("#forget").onclick=async()=>{
+  if(!confirm("Remove the saved Runpod and Hugging Face keys from this computer?")) return;
+  await post("/api/forget");
+  $("#runpodKey").value="";
+  $("#hfToken").value="";
+  $("#runpodSaved").textContent="";
+  $("#hfSaved").textContent="";
+};
+
+bootstrap();
+</script>
+</body>
+</html>
