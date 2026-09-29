@@ -16,7 +16,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import runpod
 from runpod.api.graphql import run_graphql_query
@@ -245,6 +245,120 @@ def _discover_gpu_offers(api_key: str) -> list[dict[str, Any]]:
 
     offers.sort(key=lambda item: (item["price_per_hour"], -item["vram_gb"], item["name"]))
     return offers
+
+
+def _check_container_image_pullable(image: str) -> None:
+    image = image.strip()
+    if not image.startswith("ghcr.io/"):
+        return
+
+    spec = image[len("ghcr.io/"):]
+    if "@" in spec:
+        repository, reference = spec.split("@", 1)
+    else:
+        last_slash = spec.rfind("/")
+        last_colon = spec.rfind(":")
+        if last_colon > last_slash:
+            repository = spec[:last_colon]
+            reference = spec[last_colon + 1:]
+        else:
+            repository = spec
+            reference = "latest"
+
+    if not repository or not reference:
+        raise ValueError("Container image name is invalid.")
+
+    manifest_url = f"https://ghcr.io/v2/{repository}/manifests/{reference}"
+    accept = (
+        "application/vnd.oci.image.index.v1+json,"
+        "application/vnd.oci.image.manifest.v1+json,"
+        "application/vnd.docker.distribution.manifest.v2+json"
+    )
+
+    def manifest_request(token: str | None = None):
+        headers = {"Accept": accept, "User-Agent": "UGC-Factory-Launcher/1.0"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return urllib.request.Request(manifest_url, headers=headers)
+
+    try:
+        with urllib.request.urlopen(manifest_request(), timeout=15) as response:
+            if response.status == 200:
+                return
+    except urllib.error.HTTPError as exc:
+        if exc.code != 401:
+            if exc.code == 404:
+                raise ValueError(
+                    f"Container image {image} was not found. "
+                    "Wait for the GitHub container build to finish and try again."
+                ) from exc
+            raise ValueError(
+                f"Could not access container image {image}: HTTP {exc.code}."
+            ) from exc
+
+        auth = exc.headers.get("WWW-Authenticate", "")
+        if not auth.lower().startswith("bearer "):
+            raise ValueError(
+                f"Container image {image} requires authentication and cannot be pulled by Runpod."
+            ) from exc
+
+        params: dict[str, str] = {}
+        for part in auth[7:].split(","):
+            if "=" not in part:
+                continue
+            key, value = part.strip().split("=", 1)
+            params[key] = value.strip().strip('"')
+
+        realm = params.get("realm")
+        service = params.get("service", "ghcr.io")
+        scope = params.get("scope", f"repository:{repository}:pull")
+        if not realm:
+            raise ValueError("Could not verify GHCR package visibility.")
+
+        token_url = realm + "?" + urlencode({"service": service, "scope": scope})
+
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(
+                    token_url,
+                    headers={"User-Agent": "UGC-Factory-Launcher/1.0"},
+                ),
+                timeout=15,
+            ) as token_response:
+                token_payload = json.loads(token_response.read().decode())
+        except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError) as token_exc:
+            raise ValueError(
+                f"Container image {image} is not publicly pullable. "
+                "Make the GitHub Container package public before starting a GPU."
+            ) from token_exc
+
+        token = str(token_payload.get("token") or token_payload.get("access_token") or "")
+        if not token:
+            raise ValueError(
+                f"Container image {image} is not publicly pullable. "
+                "Make the GitHub Container package public before starting a GPU."
+            )
+
+        try:
+            with urllib.request.urlopen(manifest_request(token), timeout=15) as response:
+                if response.status == 200:
+                    return
+        except urllib.error.HTTPError as manifest_exc:
+            if manifest_exc.code in {401, 403}:
+                raise ValueError(
+                    f"Container image {image} is private. "
+                    "Open the GitHub package settings and change its visibility to Public, "
+                    "then start the session again."
+                ) from manifest_exc
+            if manifest_exc.code == 404:
+                raise ValueError(
+                    f"Container image {image} or tag {reference} was not found."
+                ) from manifest_exc
+            raise ValueError(
+                f"Could not verify container image {image}: HTTP {manifest_exc.code}."
+            ) from manifest_exc
+
+    raise ValueError(f"Could not verify container image {image}.")
 
 
 def _probe_workspace(url: str) -> bool:
@@ -644,6 +758,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("GPU price is invalid.")
 
             image = str(payload.get("image") or saved.get("image") or DEFAULTS["image"]).strip()
+            _check_container_image_pullable(image)
 
             STATE.update({
                 "launching": True,
