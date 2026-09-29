@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app import db
 from app.config import settings
-from app.metadata import strip_metadata
+from app.metadata import strip_metadata, validate_video
 from app.renderers import get_renderer
 from app.renderers.base import RenderRequest
 
@@ -37,7 +37,8 @@ def _worker() -> None:
                 output_path=raw,
             ))
             db.update_job(job["id"], status="cleaning", output_raw=str(raw))
-            strip_metadata(raw, clean)
+            strip_metadata(raw, clean, expected_duration=float(job["duration"]))
+            validate_video(clean, expected_duration=float(job["duration"]))
             raw.unlink(missing_ok=True)
             db.update_job(job["id"], status="complete", output_raw=None, output_clean=str(clean), error=None)
         except Exception as exc:
