@@ -123,6 +123,19 @@
     .ready.show{display:block}
     .ready b{font-size:12px;color:#245c41}
     .ready p{margin:5px 0 0;color:#5f7668;font-size:10px;line-height:1.5}
+    .startup-status{margin-top:14px;padding:15px;border:1px solid var(--line);border-radius:10px;background:#fafaf9}
+    .startup-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
+    .startup-stage{font-size:12px;font-weight:650}
+    .startup-detail{margin-top:4px;color:#777;font-size:10px;line-height:1.45;max-width:540px}
+    .startup-time{text-align:right;white-space:nowrap}.startup-time b{display:block;font-size:16px;font-weight:650}.startup-time span{color:#888;font-size:9px}
+    .startup-track{height:5px;background:#e9e9e5;border-radius:999px;overflow:hidden;margin-top:14px}
+    .startup-fill{height:100%;width:0;background:#111;border-radius:999px;transition:width .3s ease}
+    .startup-meta{display:flex;justify-content:space-between;gap:20px;margin-top:9px;color:#888;font-size:9px}
+    .telemetry{display:none;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+    .telemetry.show{display:grid}
+    .telemetry-item{padding:10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+    .telemetry-item span{display:block;color:#999;font-size:8px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}
+    .telemetry-item b{font-size:11px;font-weight:650}
     .session-warning{margin-top:14px;padding:12px 13px;border:1px solid #eadfbd;border-radius:9px;background:#fffdf5;color:#785f13;font-size:10px;line-height:1.5}
     .session-controls{display:none;align-items:center;justify-content:space-between;gap:10px;margin-top:14px}
     .session-controls.show{display:flex}
@@ -277,6 +290,19 @@
         <div class="launch-row"><span id="podDot" class="status-dot"></span><div><b>Reserve GPU</b><span id="podText">Creating Pod…</span></div></div>
         <div class="launch-row"><span id="workspaceDot" class="status-dot"></span><div><b>Start workspace</b><span id="workspaceText">Waiting for the container…</span></div></div>
       </div>
+      <div id="startupStatus" class="startup-status">
+        <div class="startup-top">
+          <div><div id="startupStage" class="startup-stage">Waiting for Runpod status…</div><div id="startupDetail" class="startup-detail">The launcher is checking the Pod and application health.</div></div>
+          <div class="startup-time"><b id="elapsedTime">0:00</b><span id="etaText">Calculating…</span></div>
+        </div>
+        <div class="startup-track"><div id="startupFill" class="startup-fill"></div></div>
+        <div class="startup-meta"><span id="startupPercent">0%</span><span id="startupWarning"></span></div>
+        <div id="telemetry" class="telemetry">
+          <div class="telemetry-item"><span>GPU utilization</span><b id="gpuUtil">—</b></div>
+          <div class="telemetry-item"><span>VRAM utilization</span><b id="vramUtil">—</b></div>
+          <div class="telemetry-item"><span>CPU utilization</span><b id="cpuUtil">—</b></div>
+        </div>
+      </div>
       <div id="ready" class="ready"><b>Workspace ready.</b><p>Your render workspace is responding and can be opened safely.</p></div>
       <div class="session-warning">Closing or refreshing this browser tab does not stop the GPU. Billing stops only when the Runpod Pod is terminated.</div>
       <div id="sessionControls" class="session-controls">
@@ -307,6 +333,7 @@ let selectedOffer=null;
 let selectedHours=1;
 let workspaceTab=null;
 let currentWorkspaceUrl="";
+let startupTimer=null;
 
 async function get(path){
   const response=await fetch(path,{headers:{"X-Launcher-Token":TOKEN}});
@@ -441,6 +468,42 @@ async function saveCredentials(){
   }
 }
 
+function formatElapsed(seconds){
+  const value=Math.max(0,Number(seconds||0));
+  const minutes=Math.floor(value/60);
+  const secs=Math.floor(value%60);
+  return minutes+":"+String(secs).padStart(2,"0");
+}
+
+function pct(value){
+  return value===null || value===undefined ? "—" : Number(value).toFixed(0)+"%";
+}
+
+function renderStartupStatus(status){
+  if(!status) return;
+  $("#startupStage").textContent=status.stage_label||"Starting workspace";
+  $("#startupDetail").textContent=status.stage_detail||"Waiting for Runpod status.";
+  $("#elapsedTime").textContent=formatElapsed(status.elapsed_seconds);
+  $("#etaText").textContent=status.eta_text||"";
+  const progress=Math.max(0,Math.min(100,Number(status.progress_percent||0)));
+  $("#startupFill").style.width=progress+"%";
+  $("#startupPercent").textContent=progress+"%";
+
+  const elapsed=Number(status.elapsed_seconds||0);
+  $("#startupWarning").textContent=elapsed>=480 && !status.ready
+    ? "Taking longer than expected"
+    : "";
+
+  if(status.runtime_reported){
+    $("#telemetry").classList.add("show");
+    $("#gpuUtil").textContent=pct(status.gpu_util_percent);
+    $("#vramUtil").textContent=pct(status.gpu_memory_util_percent);
+    $("#cpuUtil").textContent=pct(status.cpu_percent);
+  }else{
+    $("#telemetry").classList.remove("show");
+  }
+}
+
 function renderActiveSession(status){
   if(!status || !status.active) return false;
 
@@ -452,6 +515,7 @@ function renderActiveSession(status){
   $("#sessionControls").classList.add("show");
 
   currentWorkspaceUrl=status.workspace_url||"";
+  renderStartupStatus(status);
 
   if(status.ready){
     $("#workspaceDot").classList.add("live");
@@ -506,6 +570,7 @@ async function pollWorkspace(){
       throw new Error("The Runpod Pod is no longer active.");
     }
     currentWorkspaceUrl=status.workspace_url||currentWorkspaceUrl;
+    renderStartupStatus(status);
     if(status.ready){
       $("#workspaceDot").classList.add("live");
       $("#workspaceText").textContent="Workspace is responding";
