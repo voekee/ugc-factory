@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections import deque
 import os
 import shlex
 import subprocess
 
+from app.config import settings
 from app.renderers.base import RenderRequest, Renderer
 
 
@@ -26,34 +28,41 @@ class CommandRenderer(Renderer):
 
         req.output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        proc = subprocess.run(
-            shlex.split(self.command),
-            env=env,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        log_dir = settings.data_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"{req.job_id}.log"
 
-        if proc.returncode != 0:
-            stdout = (proc.stdout or "").strip()
-            stderr = (proc.stderr or "").strip()
+        tail: deque[str] = deque(maxlen=240)
 
-            details = []
-            if stderr:
-                details.append("stderr:\n" + stderr[-7000:])
-            if stdout:
-                details.append("stdout:\n" + stdout[-5000:])
+        with log_path.open("w", encoding="utf-8", errors="replace") as log_file:
+            process = subprocess.Popen(
+                shlex.split(self.command),
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+            )
 
-            message = "\n\n".join(details) or "No renderer output was captured."
+            assert process.stdout is not None
+            for line in process.stdout:
+                log_file.write(line)
+                log_file.flush()
+                tail.append(line)
+                print(f"[{self.id}:{req.job_id[:8]}] {line}", end="", flush=True)
+
+            return_code = process.wait()
+
+        if return_code != 0:
+            diagnostics = "".join(tail).strip()
             raise RuntimeError(
-                f"Renderer {self.id} failed with exit code {proc.returncode}.\n\n{message}"
+                f"Renderer {self.id} failed with exit code {return_code}."
+                + (f"\n\n{diagnostics[-12000:]}" if diagnostics else "")
             )
 
         if not req.output_path.exists() or req.output_path.stat().st_size < 1024:
-            stdout = (proc.stdout or "").strip()
-            stderr = (proc.stderr or "").strip()
-            diagnostics = "\n".join(part for part in [stderr[-3000:], stdout[-3000:]] if part)
+            diagnostics = "".join(tail).strip()
             raise RuntimeError(
                 f"Renderer {self.id} exited without producing a valid output."
-                + (f"\n\n{diagnostics}" if diagnostics else "")
+                + (f"\n\n{diagnostics[-6000:]}" if diagnostics else "")
             )
