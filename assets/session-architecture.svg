@@ -1,16 +1,45 @@
-<svg width="1600" height="520" viewBox="0 0 1600 520" fill="none" xmlns="http://www.w3.org/2000/svg">
-<defs>
-  <linearGradient id="g" x1="70" y1="260" x2="1530" y2="260" gradientUnits="userSpaceOnUse"><stop stop-color="#8A6DFF"/><stop offset=".5" stop-color="#498CFF"/><stop offset="1" stop-color="#32E2B7"/></linearGradient>
-  <filter id="s"><feDropShadow dx="0" dy="16" stdDeviation="22" flood-opacity=".35"/></filter>
-</defs>
-<rect width="1600" height="520" rx="30" fill="#090B0F"/>
-<text x="70" y="72" font-family="Inter,Arial,sans-serif" font-size="20" font-weight="800" fill="#778194" letter-spacing="3">HOW A SESSION WORKS</text>
-<path d="M180 270H1420" stroke="url(#g)" stroke-width="4" stroke-linecap="round" opacity=".5"/>
-<g font-family="Inter,Arial,sans-serif" filter="url(#s)">
-  <g transform="translate(70 145)"><rect width="250" height="250" rx="24" fill="#11151C" stroke="#303746"/><circle cx="42" cy="42" r="18" fill="#8A6DFF"/><text x="78" y="49" font-size="20" font-weight="900" fill="white">1. START</text><text x="28" y="102" font-size="15" fill="#A7B0BE">Run the launcher.</text><text x="28" y="132" font-size="15" fill="#A7B0BE">A fresh GPU Pod</text><text x="28" y="160" font-size="15" fill="#A7B0BE">is created with</text><text x="28" y="188" font-size="15" fill="#A7B0BE">ephemeral storage only.</text></g>
-  <g transform="translate(373 145)"><rect width="250" height="250" rx="24" fill="#11151C" stroke="#303746"/><circle cx="42" cy="42" r="18" fill="#687EFF"/><text x="78" y="49" font-size="20" font-weight="900" fill="white">2. LOAD</text><text x="28" y="102" font-size="15" fill="#A7B0BE">Pick LTX, Wan or</text><text x="28" y="132" font-size="15" fill="#A7B0BE">SkyReels. Only the</text><text x="28" y="160" font-size="15" fill="#A7B0BE">model you actually use</text><text x="28" y="188" font-size="15" fill="#A7B0BE">downloads to the Pod.</text></g>
-  <g transform="translate(676 145)"><rect width="250" height="250" rx="24" fill="#11151C" stroke="#303746"/><circle cx="42" cy="42" r="18" fill="#4D9FFF"/><text x="78" y="49" font-size="20" font-weight="900" fill="white">3. RENDER</text><text x="28" y="102" font-size="15" fill="#A7B0BE">Queue dozens of clips.</text><text x="28" y="132" font-size="15" fill="#A7B0BE">Two creators can work</text><text x="28" y="160" font-size="15" fill="#A7B0BE">inside the same session</text><text x="28" y="188" font-size="15" fill="#A7B0BE">at the same time.</text></g>
-  <g transform="translate(979 145)"><rect width="250" height="250" rx="24" fill="#11151C" stroke="#303746"/><circle cx="42" cy="42" r="18" fill="#3CCCB6"/><text x="78" y="49" font-size="20" font-weight="900" fill="white">4. EXPORT</text><text x="28" y="102" font-size="15" fill="#A7B0BE">Every output becomes</text><text x="28" y="132" font-size="15" fill="#A7B0BE">720×1280 H.264 and</text><text x="28" y="160" font-size="15" fill="#A7B0BE">ordinary metadata is</text><text x="28" y="188" font-size="15" fill="#A7B0BE">removed automatically.</text></g>
-  <g transform="translate(1282 145)"><rect width="250" height="250" rx="24" fill="#11151C" stroke="#303746"/><circle cx="42" cy="42" r="18" fill="#32E2B7"/><text x="78" y="49" font-size="20" font-weight="900" fill="white">5. KILL</text><text x="28" y="102" font-size="15" fill="#A7B0BE">Download everything.</text><text x="28" y="132" font-size="15" fill="#A7B0BE">Terminate the Pod.</text><text x="28" y="160" font-size="15" fill="#A7B0BE">No network volume.</text><text x="28" y="188" font-size="15" font-weight="800" fill="#DDFBF3">Idle Runpod cost: $0.</text></g>
+<svg width="1600" height="300" viewBox="0 0 1600 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x=".5" y=".5" width="1599" height="299" rx="18" fill="#FFFFFF" stroke="#E4E4E0"/>
+<g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
+  <text x="54" y="56" font-size="11" font-weight="700" letter-spacing="1.5" fill="#84847F">SESSION LIFECYCLE</text>
+
+  <g transform="translate(54 103)">
+    <g>
+      <text x="0" y="0" font-size="11" font-weight="700" fill="#8A8A85">01</text>
+      <text x="0" y="34" font-size="18" font-weight="650" fill="#111111">Start Pod</text>
+      <text x="0" y="62" font-size="12" fill="#777772">Ephemeral GPU session</text>
+    </g>
+    <path d="M188 34H272" stroke="#D6D6D1"/><path d="M265 28L272 34L265 40" stroke="#D6D6D1"/>
+
+    <g transform="translate(304 0)">
+      <text x="0" y="0" font-size="11" font-weight="700" fill="#8A8A85">02</text>
+      <text x="0" y="34" font-size="18" font-weight="650" fill="#111111">Load model</text>
+      <text x="0" y="62" font-size="12" fill="#777772">Only what you use</text>
+    </g>
+    <path d="M493 34H577" stroke="#D6D6D1"/><path d="M570 28L577 34L570 40" stroke="#D6D6D1"/>
+
+    <g transform="translate(609 0)">
+      <text x="0" y="0" font-size="11" font-weight="700" fill="#8A8A85">03</text>
+      <text x="0" y="34" font-size="18" font-weight="650" fill="#111111">Render</text>
+      <text x="0" y="62" font-size="12" fill="#777772">Shared queue</text>
+    </g>
+    <path d="M798 34H882" stroke="#D6D6D1"/><path d="M875 28L882 34L875 40" stroke="#D6D6D1"/>
+
+    <g transform="translate(914 0)">
+      <text x="0" y="0" font-size="11" font-weight="700" fill="#8A8A85">04</text>
+      <text x="0" y="34" font-size="18" font-weight="650" fill="#111111">Download</text>
+      <text x="0" y="62" font-size="12" fill="#777772">Clean MP4 / ZIP</text>
+    </g>
+    <path d="M1103 34H1187" stroke="#D6D6D1"/><path d="M1180 28L1187 34L1180 40" stroke="#D6D6D1"/>
+
+    <g transform="translate(1219 0)">
+      <text x="0" y="0" font-size="11" font-weight="700" fill="#8A8A85">05</text>
+      <text x="0" y="34" font-size="18" font-weight="650" fill="#111111">Terminate</text>
+      <text x="0" y="62" font-size="12" fill="#18794E">No persistent volume</text>
+    </g>
+  </g>
+
+  <line x1="54" y1="226" x2="1546" y2="226" stroke="#EEEEEB"/>
+  <text x="54" y="258" font-size="12" fill="#777772">The Pod and its local disk are disposable. Model weights download again on the next fresh session.</text>
 </g>
 </svg>
