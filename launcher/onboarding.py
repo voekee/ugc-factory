@@ -55,6 +55,7 @@ def _read_config() -> dict[str, Any]:
 
 
 def _write_config(config: dict[str, Any]) -> None:
+    config = {**config, "config_version": 2}
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(CONFIG_DIR, 0o700)
@@ -84,6 +85,7 @@ def _mask(value: str) -> str:
 
 def _public_config() -> dict[str, Any]:
     saved = _read_config()
+    legacy = int(saved.get("config_version", 1)) < 2
     return {
         "config_path": str(CONFIG_PATH),
         "runpod_saved": bool(saved.get("runpod_api_key")),
@@ -91,10 +93,10 @@ def _public_config() -> dict[str, Any]:
         "hf_saved": bool(saved.get("hf_token")),
         "hf_masked": _mask(str(saved.get("hf_token", ""))),
         "image": saved.get("image", DEFAULTS["image"]),
-        "gpu": saved.get("gpu", DEFAULTS["gpu"]),
-        "cloud": saved.get("cloud", DEFAULTS["cloud"]),
+        "gpu": DEFAULTS["gpu"] if legacy else saved.get("gpu", DEFAULTS["gpu"]),
+        "cloud": DEFAULTS["cloud"] if legacy else saved.get("cloud", DEFAULTS["cloud"]),
         "hours": saved.get("hours", DEFAULTS["hours"]),
-        "disk": saved.get("disk", DEFAULTS["disk"]),
+        "disk": DEFAULTS["disk"] if legacy else saved.get("disk", DEFAULTS["disk"]),
         "rate": saved.get("rate", DEFAULTS["rate"]),
     }
 
