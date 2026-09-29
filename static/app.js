@@ -365,13 +365,20 @@ function drawJobs(jobs) {
   $('#queueBadge').classList.toggle('hidden', active.length === 0);
 
   $('#queue').innerHTML = active.length
-    ? active.map(job =>
-        '<div class="queue-item">' +
-          '<div><strong>' + esc(job.owner) + ' · ' + esc(job.renderer) + '</strong>' +
-          '<small>' + esc((job.prompt || '').slice(0, 90)) + '</small></div>' +
+    ? active.map(job => {
+        const log = job.live_log
+          ? '<details class="queue-log"><summary>Live log</summary><pre>' + esc(job.live_log) + '</pre></details>'
+          : '';
+        return '<div class="queue-item">' +
+          '<div class="queue-main">' +
+            '<strong>' + esc(job.owner) + ' · ' + esc(job.renderer) + '</strong>' +
+            '<div class="queue-phase">' + esc(job.phase || job.status) + '</div>' +
+            '<small>' + esc(job.phase_detail || (job.prompt || '').slice(0, 90)) + '</small>' +
+            log +
+          '</div>' +
           '<div class="status ' + esc(job.status) + '">' + esc(job.status) + '</div>' +
-        '</div>'
-      ).join('')
+        '</div>';
+      }).join('')
     : '<div class="queue-empty">No active renders.</div>';
 
   if (!results.length) {
