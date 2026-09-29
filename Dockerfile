@@ -14,7 +14,7 @@ RUN apt-get update \
 
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     && ln -s /root/.local/bin/uv /usr/local/bin/uv \
-    && uv venv --seed "$VIRTUAL_ENV" --python python3
+    && uv venv --seed --system-site-packages "$VIRTUAL_ENV" --python python3
 
 WORKDIR /app
 
@@ -24,6 +24,8 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
     && python -m pip install --no-cache-dir "huggingface_hub[cli]"
 
 # Bake the pinned LTX source and its runtime dependencies into the image once.
+# The venv sees the base image system site-packages, so pip reuses Runpod's
+# preinstalled Torch 2.9.1 + CUDA 12.8 instead of downloading a second Torch/CUDA stack.
 # We intentionally do NOT install the optional NATTEN extra here. The official
 # pipeline supports PyTorch SDPA / fallback decoding without NATTEN, and keeping
 # the existing Torch 2.9.1 + CUDA 12.8 stack avoids replacing it with another
