@@ -57,7 +57,7 @@ RUN git clone --no-checkout --filter=blob:none https://github.com/SkyworkAI/SkyR
     && python scripts/prepare_skyreels.py "$SKY_CODE" \
     && uv venv --seed --system-site-packages /opt/sky-venv --python python3 \
     && grep -v -E '^(torch==|torchvision==|flash_attn==|xfuser==|yunchang==|torchao==)' "$SKY_CODE/requirements.txt" > /tmp/sky-requirements.txt \
-    && /opt/sky-venv/bin/pip install --no-cache-dir -r /tmp/sky-requirements.txt imageio torchvision==0.24.1 \
+    && /opt/sky-venv/bin/pip install --no-cache-dir -r /tmp/sky-requirements.txt imageio einops sentencepiece torchvision==0.24.1 \
     && cd "$SKY_CODE" \
     && /opt/sky-venv/bin/python - <<'PY'
 import torch, torchvision
