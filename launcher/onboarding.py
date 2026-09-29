@@ -247,6 +247,17 @@ def _discover_gpu_offers(api_key: str) -> list[dict[str, Any]]:
 
         display_name = str(gpu.get("displayName") or gpu_id.replace("NVIDIA ", ""))
 
+        # The default LTX-2.5 path uses FP8 and should not be offered on older
+        # Ampere cards. Those cards remain valid for other workloads, but they
+        # are a poor default for this factory and can fail after paid startup.
+        incompatible_ltx = (
+            "A40" in gpu_id
+            or "A100" in gpu_id
+            or "RTX A6000" in gpu_id
+        )
+        if incompatible_ltx:
+            continue
+
         for field, cloud in (("community", "COMMUNITY"), ("secure", "SECURE")):
             price_data = gpu.get(field) or {}
             price = price_data.get("uninterruptablePrice")
