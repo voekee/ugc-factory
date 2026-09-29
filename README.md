@@ -84,6 +84,8 @@ The trade-off is simple:
 
 # Quick start
 
+The normal setup no longer requires shell exports.
+
 ## 1. Clone
 
 ```bash
@@ -91,122 +93,53 @@ git clone https://github.com/voekee/ugc-factory.git
 cd ugc-factory
 ```
 
-Repository layout:
+## 2. Start the local launcher
+
+```bash
+bash start.sh
+```
+
+On first run the script creates a small local Python environment, starts the onboarding app on `127.0.0.1`, and opens your browser automatically.
+
+The browser setup explains:
+
+1. where to paste your **Runpod API key**
+2. where to paste your **Hugging Face token** for LTX-2.5
+3. which GPU, session length and ephemeral disk to use
+4. what is stored locally
+5. what happens when the Pod is terminated
+
+Keys can be remembered on this computer in:
 
 ```text
-ugc-factory/
-├── app/           backend, queue, metadata, termination
-├── launcher/      creates the Runpod Pod
-├── scripts/       model adapters
-├── static/        web workspace
-├── tests/         mock E2E and metadata tests
-├── assets/        documentation artwork
-├── Dockerfile
-└── README.md
+~/.ugc-factory/config.json
 ```
 
----
+The file is created with owner-only permissions where the operating system supports them. It lives outside this Git repository.
 
-## 2. Make the container available
+> [!NOTE]
+> “Saved locally” means the credentials are not committed to GitHub or saved in browser storage. Credentials required by a render session are still transmitted to the temporary Runpod Pod as environment variables for that session. The Pod is ephemeral and those values disappear with it when terminated.
 
-Runtime changes on `main` trigger:
+## 3. Click Start GPU
 
-```text
-.github/workflows/ghcr.yml
-```
+The onboarding page creates the Pod and opens the render workspace automatically once the container responds.
 
-The workflow publishes:
-
-```text
-ghcr.io/voekee/ugc-factory:latest
-```
-
-Check the repository's **Actions** tab and make sure **Build container** completed successfully.
-
-For the simplest setup, make the GHCR package public so Runpod can pull it without registry credentials.
-
----
-
-## 3. Add your Runpod API key locally
-
-Create a Runpod API key in your own Runpod account.
-
-Then, in your terminal:
-
-```bash
-export RUNPOD_API_KEY='YOUR_RUNPOD_API_KEY'
-```
-
-Do not commit it. Do not put it in the repository. Do not send it to your teammate.
-
-Set the image:
-
-```bash
-export UGC_FACTORY_IMAGE='ghcr.io/voekee/ugc-factory:latest'
-```
-
----
-
-## 4. Enable LTX-2.5
-
-LTX-2.5 is the recommended first renderer.
-
-Complete the model-access flow on Hugging Face, create a read token, then export it locally:
-
-```bash
-export HF_TOKEN='hf_...'
-```
-
-The token is passed into the temporary Pod for the session.
-
----
-
-## 5. Start a render session
-
-```bash
-bash launcher/start.sh --hours 5 --rate 0.99
-```
-
-Default settings:
+The default session is:
 
 | Setting | Default |
 |---|---|
+| Container | `ghcr.io/voekee/ugc-factory:latest` |
 | GPU | NVIDIA GeForce RTX 5090 |
-| Cloud | COMMUNITY |
+| Cloud | Community |
+| Session | 5 hours |
 | Ephemeral disk | 350 GB |
 | Network Volume | none |
-| Runtime watchdog | from `--hours` |
 
-`--rate` is only used for the dashboard's rough cost display. It does not change Runpod pricing.
+The onboarding page remembers those choices locally too.
 
-Full example:
+## 4. First GPU test
 
-```bash
-bash launcher/start.sh \
-  --gpu 'NVIDIA GeForce RTX 5090' \
-  --cloud COMMUNITY \
-  --hours 5 \
-  --disk 350 \
-  --rate 0.99
-```
-
-The launcher prints:
-
-```text
-Pod: abc123xyz
-Dashboard: https://abc123xyz-8000.proxy.runpod.net
-Session access token: <temporary random token>
-```
-
-Keep that output open.
-
----
-
-## 6. Open the workspace
-
-Open the dashboard URL and enter the temporary session token.
-
-For the first real GPU test use:
+Start small:
 
 ```text
 Model        LTX-2.5
@@ -224,21 +157,31 @@ and begins opening the top flap. Keep the movement small and realistic.
 Normal indoor lighting, subtle camera movement, no cinematic motion.
 ```
 
-Start with one clip.
-
-Then:
+Then scale:
 
 ```text
 1 clip
 → verify
 → 10 clips
-→ verify quality and speed
+→ verify speed and quality
 → larger batches
 ```
 
-That isolates real GPU or model-access problems before you fill the queue.
+## Advanced CLI
 
----
+The old CLI still exists for automation and power users:
+
+```bash
+export RUNPOD_API_KEY='...'
+export HF_TOKEN='hf_...'
+
+python launcher/runpod_launcher.py \
+  --image ghcr.io/voekee/ugc-factory:latest \
+  --gpu 'NVIDIA GeForce RTX 5090' \
+  --hours 5 \
+  --disk 350 \
+  --rate .99
+```
 
 # Workspace
 
