@@ -12,20 +12,28 @@ from urllib.parse import quote
 import runpod
 
 
-def launch_pod(
+AUTO_GPU_CANDIDATES = [
+    "NVIDIA GeForce RTX 5090",
+    "NVIDIA RTX 6000 Ada Generation",
+    "NVIDIA L40S",
+    "NVIDIA RTX A6000",
+    "NVIDIA A40",
+    "NVIDIA A100 80GB PCIe",
+    "NVIDIA GeForce RTX 4090",
+]
+
+
+def _create_single_pod(
     *,
     api_key: str,
     image: str,
-    gpu: str = "NVIDIA GeForce RTX 5090",
-    cloud: str = "COMMUNITY",
-    hours: float = 5.0,
-    disk: int = 350,
-    hf_token: str = "",
-    rate: float = 0.0,
+    gpu: str,
+    cloud: str,
+    hours: float,
+    disk: int,
+    hf_token: str,
+    rate: float,
 ) -> dict[str, Any]:
-    if not api_key:
-        raise ValueError("Runpod API key is required.")
-
     runpod.api_key = api_key
     access = secrets.token_urlsafe(18)
     session_name = f"ugc-factory-{secrets.token_hex(4)}"
@@ -65,16 +73,70 @@ def launch_pod(
         "dashboard_url": dashboard_url,
         "workspace_url": workspace_url,
         "access_token": access,
+        "selected_gpu": gpu,
+        "selected_cloud": cloud,
     }
+
+
+def launch_pod(
+    *,
+    api_key: str,
+    image: str,
+    gpu: str = "AUTO",
+    cloud: str = "ALL",
+    hours: float = 5.0,
+    disk: int = 180,
+    hf_token: str = "",
+    rate: float = 0.0,
+) -> dict[str, Any]:
+    if not api_key:
+        raise ValueError("Runpod API key is required.")
+
+    if gpu != "AUTO":
+        return _create_single_pod(
+            api_key=api_key,
+            image=image,
+            gpu=gpu,
+            cloud=cloud,
+            hours=hours,
+            disk=disk,
+            hf_token=hf_token,
+            rate=rate,
+        )
+
+    cloud_order = ["COMMUNITY", "SECURE"] if cloud == "ALL" else [cloud]
+    errors: list[str] = []
+
+    for candidate in AUTO_GPU_CANDIDATES:
+        for candidate_cloud in cloud_order:
+            try:
+                return _create_single_pod(
+                    api_key=api_key,
+                    image=image,
+                    gpu=candidate,
+                    cloud=candidate_cloud,
+                    hours=hours,
+                    disk=disk,
+                    hf_token=hf_token,
+                    rate=rate,
+                )
+            except Exception as exc:
+                errors.append(f"{candidate} / {candidate_cloud}: {exc}")
+
+    raise RuntimeError(
+        "No supported GPU is currently available on Runpod for this session. "
+        "Tried: " + ", ".join(AUTO_GPU_CANDIDATES) + ". "
+        "Runpod capacity changes constantly; wait a few minutes and try again."
+    )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Advanced CLI launcher for an ephemeral UGC Factory Pod")
     parser.add_argument("--image", default=os.getenv("UGC_FACTORY_IMAGE", "ghcr.io/voekee/ugc-factory:latest"))
-    parser.add_argument("--gpu", default="NVIDIA GeForce RTX 5090")
-    parser.add_argument("--cloud", choices=["ALL", "SECURE", "COMMUNITY"], default="COMMUNITY")
+    parser.add_argument("--gpu", default="AUTO")
+    parser.add_argument("--cloud", choices=["ALL", "SECURE", "COMMUNITY"], default="ALL")
     parser.add_argument("--hours", type=float, default=5.0)
-    parser.add_argument("--disk", type=int, default=350)
+    parser.add_argument("--disk", type=int, default=180)
     parser.add_argument("--hf-token", default=os.getenv("HF_TOKEN", ""))
     parser.add_argument("--rate", type=float, default=0.0)
     args = parser.parse_args()
@@ -95,6 +157,7 @@ def main() -> None:
     )
 
     print(f"\nPod: {result['pod_id']}")
+    print(f"GPU: {result['selected_gpu']} ({result['selected_cloud']})")
     print(f"Dashboard: {result['dashboard_url']}")
     print(f"Workspace: {result['workspace_url']}")
     print(f"Hard session target: {args.hours:g}h")
