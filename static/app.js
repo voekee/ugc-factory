@@ -1,5 +1,13 @@
 const $ = s => document.querySelector(s);
-let token = localStorage.getItem('ugc_token') || '';
+
+const launchParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+const launchToken = launchParams.get('token') || '';
+if (launchToken) {
+  localStorage.setItem('ugc_token', launchToken);
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+}
+
+let token = launchToken || localStorage.getItem('ugc_token') || '';
 let renderers = [];
 let renderer = null;
 let duration = 5;
