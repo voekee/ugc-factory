@@ -364,10 +364,23 @@ def _check_container_image_pullable(image: str) -> None:
 def _probe_workspace(url: str) -> bool:
     if not url:
         return False
+
+    request = urllib.request.Request(
+        url.rstrip("/") + "/api/health",
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 Chrome/136 Safari/537.36"
+            ),
+            "Accept": "application/json,text/plain,*/*",
+            "Cache-Control": "no-cache",
+        },
+    )
+
     try:
-        with urllib.request.urlopen(url.rstrip("/") + "/api/health", timeout=4) as response:
+        with urllib.request.urlopen(request, timeout=5) as response:
             return response.status == 200
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
         return False
 
 
@@ -445,14 +458,42 @@ def _session_status_payload() -> dict[str, Any]:
         })
 
     dashboard_url = str(session.get("dashboard_url") or STATE.get("dashboard_url") or "")
-    ready = _probe_workspace(dashboard_url) if dashboard_url else False
+    health_ready = _probe_workspace(dashboard_url) if dashboard_url else False
 
-    progress = _progress_snapshot(session, ready) if session.get("pod_id") else {}
+    progress = _progress_snapshot(session, health_ready) if session.get("pod_id") else {}
+    runtime_ready = bool(
+        progress.get("runtime_reported")
+        and int(progress.get("container_uptime_seconds") or 0) >= 8
+    )
+    ready = bool(health_ready or runtime_ready)
+
+    if ready and not health_ready:
+        progress = {
+            **progress,
+            "stage": "container_ready",
+            "stage_label": "Container ready",
+            "stage_detail": (
+                "Runpod reports a healthy running container. "
+                "The local Python health probe could not verify the proxy directly, "
+                "so the workspace can be opened now."
+            ),
+            "progress_percent": 96,
+            "eta_text": "Open workspace",
+        }
+
+    workspace_url = str(session.get("workspace_url") or "")
+    parsed_workspace = urlparse(workspace_url) if workspace_url else None
+    token_values = parse_qs(parsed_workspace.fragment).get("token", []) if parsed_workspace else []
+    if not token_values and parsed_workspace:
+        token_values = parse_qs(parsed_workspace.query).get("session_token", [])
+    session_token = token_values[0] if token_values else ""
 
     return {
         **STATE,
         **session,
         **progress,
+        "session_token": session_token,
+        "health_probe_ready": health_ready,
         "ready": ready,
         "active": bool(session.get("pod_id")),
         "config_path": str(CONFIG_PATH),
