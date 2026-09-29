@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UGC Factory</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div id="auth" class="auth-screen">
+    <div class="auth-card">
+      <div class="logo">UGC</div>
+      <h1>UGC Factory</h1>
+      <p>Private ephemeral render session.</p>
+      <input id="token" type="password" placeholder="Session access token" autocomplete="off" />
+      <button id="login">Enter factory</button>
+      <small>Your token stays in this browser only.</small>
+    </div>
+  </div>
+
+  <main id="app" class="app hidden">
+    <header class="topbar">
+      <div><div class="eyebrow">PRIVATE RENDER FARM</div><h1>UGC Factory</h1></div>
+      <div class="session-pill"><span class="dot"></span><span id="sessionText">GPU session</span></div>
+    </header>
+
+    <section class="grid">
+      <div class="panel composer">
+        <div class="panel-title"><span>Create</span><span class="hint">720p · 9:16</span></div>
+
+        <label>Who's creating?</label>
+        <input id="owner" placeholder="Mehmet / Joshua" maxlength="40" />
+
+        <label>Renderer</label>
+        <div id="renderers" class="renderer-grid"></div>
+        <div id="rendererNote" class="note"></div>
+
+        <div class="frame-grid">
+          <div><label>Start / reference frame</label><div class="drop"><input id="startFrame" type="file" accept="image/*" /><span>Drop image or click</span></div></div>
+          <div id="endFrameWrap"><label>End frame <span class="muted">optional</span></label><div class="drop"><input id="endFrame" type="file" accept="image/*" /><span>Drop image or click</span></div></div>
+        </div>
+
+        <label>Prompt</label>
+        <textarea id="prompt" rows="5" placeholder="Describe only the motion, camera behavior and action you want..."></textarea>
+
+        <div class="split">
+          <div><label>Duration</label><div id="durations" class="chips"></div></div>
+          <div><label>Variations</label><input id="variations" type="number" min="1" max="100" value="10" /></div>
+        </div>
+
+        <button id="generate" class="primary">Generate batch</button>
+        <div id="formError" class="error"></div>
+      </div>
+
+      <div class="panel queue-panel">
+        <div class="panel-title"><span>Queue</span><span id="queueCount" class="hint">0 active</span></div>
+        <div id="queue" class="queue"></div>
+      </div>
+    </section>
+
+    <section class="panel gallery-panel">
+      <div class="panel-title">
+        <span>Results</span>
+        <div class="actions"><button id="selectAll" class="ghost">Select ready</button><button id="downloadSelected" class="ghost">Download selected</button></div>
+      </div>
+      <div id="gallery" class="gallery"></div>
+    </section>
+
+    <section class="panel danger-panel">
+      <div><strong>Ephemeral session</strong><p>After termination, this Pod and every non-downloaded file are deleted. No Network Volume is used.</p></div>
+      <button id="terminate" class="danger">Terminate Pod</button>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
