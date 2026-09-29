@@ -82,6 +82,7 @@
     .gpu-card.selected{border-color:#111;box-shadow:0 0 0 1px #111}
     .gpu-card-top{display:flex;justify-content:space-between;gap:12px;align-items:start}
     .gpu-name{font-size:13px;font-weight:650;letter-spacing:-.015em}
+    .gpu-recommended{display:inline-block;margin-left:8px;padding:3px 6px;border-radius:5px;background:#eaf2df;color:#315c35;font-size:9px;font-weight:700;letter-spacing:0;vertical-align:middle}
     .gpu-cloud{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#777;border:1px solid var(--line);border-radius:999px;padding:4px 6px}
     .gpu-specs{display:flex;align-items:end;justify-content:space-between;margin-top:22px}
     .gpu-vram{font-size:24px;font-weight:620;letter-spacing:-.04em}
@@ -196,14 +197,12 @@
   <section class="view" id="step2">
     <p class="eyebrow">Step 2 of 4</p>
     <h1>Choose a GPU.</h1>
-    <p class="lead">These are live Runpod offers suitable for the default LTX-2.5 path. 48 GB VRAM is recommended for the first production test.</p>
+    <p class="lead">Live Runpod offers for LTX-2.5 and SkyReels V3. Every option shown has at least 48 GB of VRAM and a compatible GPU family.</p>
 
     <div class="filters">
       <div class="filter-box">
         <label>Minimum VRAM</label>
         <select id="minVram">
-          <option value="24">24 GB+</option>
-          <option value="32">32 GB+</option>
           <option value="48" selected>48 GB+ · recommended</option>
           <option value="80">80 GB+</option>
         </select>
@@ -228,7 +227,7 @@
       </div>
       <div id="gpuLoading" class="loading"><span class="spinner"></span><span>Loading live inventory</span></div>
       <div id="gpuGrid" class="gpu-grid"></div>
-      <div id="gpuEmpty" class="empty" style="display:none">No matching GPU is available right now. Raise your max price, lower the VRAM filter or refresh in a moment.</div>
+      <div id="gpuEmpty" class="empty" style="display:none">No matching GPU is available right now. Raise your max price or refresh in a moment.</div>
       <div id="gpuSelection" class="selection-bar" style="display:none">
         <div><strong id="selectedGpuName"></strong><span id="selectedGpuMeta"></span></div>
         <button id="continueGpu" class="button primary">Continue</button>
@@ -261,7 +260,7 @@
         </div>
       </div>
 
-      <div class="estimate"><span>Estimated maximum GPU compute</span><b id="estimate"></b></div>
+      <div class="estimate"><span>Estimated maximum compute + container disk</span><b id="estimate"></b></div>
 
       <details>
         <summary>Advanced settings</summary>
@@ -276,7 +275,7 @@
         <button id="startSession" class="button primary">Start session</button>
       </div>
       <div id="sessionError" class="error"></div>
-      <p class="footnote">No Network Volume is created. The local Pod disk disappears when you terminate the Pod. The estimate above assumes the GPU runs for the full selected time.</p>
+      <p class="footnote">Includes the live GPU price and Runpod's published $0.10/GB/month container-disk rate, prorated over 730 hours. No Network Volume is created. Billing ends when the Pod is terminated.</p>
     </div>
   </section>
 
@@ -400,7 +399,7 @@ function renderOffers(offers){
   $("#gpuGrid").innerHTML=offers.map((item,index)=>`
     <button class="gpu-card ${selectedOffer && selectedOffer.gpu_id===item.gpu_id && selectedOffer.cloud===item.cloud ? "selected":""}" data-index="${gpuOffers.indexOf(item)}">
       <div class="gpu-card-top">
-        <div class="gpu-name">${item.name}</div>
+        <div class="gpu-name">${item.name}${item.recommended?'<span class="gpu-recommended">Best value</span>':''}</div>
         <div class="gpu-cloud">${item.cloud==="COMMUNITY"?"Community":"Secure"}</div>
       </div>
       <div class="gpu-specs">
@@ -431,6 +430,12 @@ async function loadGpus(){
   try{
     const data=await get("/api/gpus");
     gpuOffers=data.offers||[];
+    if(gpuOffers.length){
+      selectedOffer=gpuOffers.find(item=>item.recommended)||gpuOffers[0];
+      $("#selectedGpuName").textContent=selectedOffer.name;
+      $("#selectedGpuMeta").textContent=`${selectedOffer.vram_gb} GB VRAM · ${selectedOffer.cloud==="COMMUNITY"?"Community":"Secure"} · $${Number(selectedOffer.price_per_hour).toFixed(2)}/h`;
+      $("#gpuSelection").style.display="flex";
+    }
     filterOffers();
   }catch(error){
     $("#gpuLoading").style.display="none";
@@ -440,11 +445,13 @@ async function loadGpus(){
 
 function updateSessionSummary(){
   if(!selectedOffer) return;
+  const diskRate=Number($("#disk").value||180)*0.10/730;
+  const maximum=(selectedOffer.price_per_hour+diskRate)*selectedHours;
   $("#sessionGpuName").textContent=selectedOffer.name;
   $("#sessionGpuMeta").textContent=`${selectedOffer.vram_gb} GB VRAM · ${selectedOffer.cloud==="COMMUNITY"?"Community Cloud":"Secure Cloud"}`;
   $("#sessionGpuPrice").innerHTML=`$${Number(selectedOffer.price_per_hour).toFixed(2)}<small>per hour</small>`;
-  $("#estimate").textContent="$"+(selectedOffer.price_per_hour*selectedHours).toFixed(2);
-  $("#startSession").textContent=`Start ${selectedHours}h session · up to $${(selectedOffer.price_per_hour*selectedHours).toFixed(2)}`;
+  $("#estimate").textContent="$"+maximum.toFixed(2);
+  $("#startSession").textContent=`Start ${selectedHours}h session · up to $${maximum.toFixed(2)}`;
 }
 
 async function saveCredentials(){
@@ -518,9 +525,8 @@ function renderActiveSession(status){
 
   currentSessionToken=status.session_token||currentSessionToken||"";
   currentWorkspaceUrl=status.workspace_url||"";
-  if(currentSessionToken && currentWorkspaceUrl && !currentWorkspaceUrl.includes("session_token=")){
-    const sep=currentWorkspaceUrl.includes("?")?"&":"?";
-    currentWorkspaceUrl=currentWorkspaceUrl+sep+"session_token="+encodeURIComponent(currentSessionToken);
+  if(currentSessionToken && currentWorkspaceUrl && !currentWorkspaceUrl.includes("#token=") && !currentWorkspaceUrl.includes("session_token=")){
+    currentWorkspaceUrl=currentWorkspaceUrl.split("#")[0]+"#token="+encodeURIComponent(currentSessionToken);
   }
   renderStartupStatus(status);
 
@@ -562,9 +568,8 @@ async function startSession(){
     $("#sessionControls").classList.add("show");
     currentSessionToken=result.session_token||"";
     currentWorkspaceUrl=result.workspace_url||"";
-    if(currentSessionToken && currentWorkspaceUrl && !currentWorkspaceUrl.includes("session_token=")){
-      const sep=currentWorkspaceUrl.includes("?")?"&":"?";
-      currentWorkspaceUrl=currentWorkspaceUrl+sep+"session_token="+encodeURIComponent(currentSessionToken);
+    if(currentSessionToken && currentWorkspaceUrl && !currentWorkspaceUrl.includes("#token=") && !currentWorkspaceUrl.includes("session_token=")){
+      currentWorkspaceUrl=currentWorkspaceUrl.split("#")[0]+"#token="+encodeURIComponent(currentSessionToken);
     }
     await pollWorkspace();
   }catch(error){
@@ -583,9 +588,8 @@ async function pollWorkspace(){
     }
     currentSessionToken=status.session_token||currentSessionToken||"";
     currentWorkspaceUrl=status.workspace_url||currentWorkspaceUrl;
-    if(currentSessionToken && currentWorkspaceUrl && !currentWorkspaceUrl.includes("session_token=")){
-      const sep=currentWorkspaceUrl.includes("?")?"&":"?";
-      currentWorkspaceUrl=currentWorkspaceUrl+sep+"session_token="+encodeURIComponent(currentSessionToken);
+    if(currentSessionToken && currentWorkspaceUrl && !currentWorkspaceUrl.includes("#token=") && !currentWorkspaceUrl.includes("session_token=")){
+      currentWorkspaceUrl=currentWorkspaceUrl.split("#")[0]+"#token="+encodeURIComponent(currentSessionToken);
     }
     renderStartupStatus(status);
     if(status.ready){
@@ -606,6 +610,7 @@ $("#refreshGpu").onclick=loadGpus;
 $("#minVram").onchange=filterOffers;
 $("#maxPrice").oninput=filterOffers;
 $("#sortGpu").onchange=filterOffers;
+$("#disk").oninput=updateSessionSummary;
 $("#continueGpu").onclick=()=>{updateSessionSummary();go(3)};
 $("#startSession").onclick=startSession;
 $("#findAnother").onclick=async()=>{$("#launchError").textContent="";$("#launchRetry").style.display="none";selectedOffer=null;$("#gpuSelection").style.display="none";go(2);await loadGpus()};

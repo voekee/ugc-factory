@@ -8,6 +8,7 @@ import random
 import re
 import uuid
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
@@ -178,7 +179,10 @@ def _read_job_log(job_id: str, max_chars: int = 5000) -> str:
     if not path.exists():
         return ""
     try:
-        data = path.read_text(encoding="utf-8", errors="replace")
+        with path.open("rb") as log:
+            log.seek(0, 2)
+            log.seek(max(0, log.tell() - max_chars * 4))
+            data = log.read().decode("utf-8", errors="replace")
     except OSError:
         return ""
     return data[-max_chars:]
@@ -188,7 +192,7 @@ def _job_phase(job: dict) -> tuple[str, str]:
     if job["status"] == "queued":
         return "Queued", "Waiting for the worker"
     if job["status"] == "cleaning":
-        return "Cleaning video", "Removing metadata and finalizing MP4"
+        return "Finalizing MP4", "Encoding, removing metadata, and validating the output"
     if job["status"] == "complete":
         return "Ready", "Finished"
     if job["status"] == "failed":
@@ -197,30 +201,61 @@ def _job_phase(job: dict) -> tuple[str, str]:
         return job["status"].title(), ""
 
     log = _read_job_log(job["id"])
+    lower = log.lower()
+    if "converting model output" in lower or "encoding mp4" in lower:
+        return "Encoding MP4", "Preparing the social-ready file"
+    if "decoding video" in lower or "video decoder" in lower:
+        return "Decoding video", "Turning generated frames into video"
+    if "denoising" in lower or "diffusion stage" in lower or "sampling" in lower:
+        return "GPU inference", "Generating video frames on the GPU"
+    if "building transformer" in lower or "loading transformer" in lower:
+        return "Loading transformer", "Warming the video model"
+    if "text encoder" in lower:
+        return "Loading text encoder", "Preparing the prompt"
     if "[LTX] Loading model and starting render:" in log:
-        return "Loading model / rendering", "The LTX weights are loading into RAM/VRAM and GPU inference is starting"
+        return "Loading model", "Warming model weights"
     if "[LTX] Downloading LTX-2.5 model weights..." in log:
         return "Downloading LTX-2.5", "First-run model weights are downloading to this temporary Pod"
+    if "fetching" in lower or "downloading" in lower:
+        return "Downloading model weights", "First use downloads weights to the temporary Pod"
     if "[LTX] Runtime baked into container." in log:
         return "Checking GPU runtime", "LTX code and Python dependencies are already installed in the container"
-    return "Starting renderer", "Preparing the LTX run"
+    return "Preparing renderer", "Checking the model runtime"
 
 
-def _enrich_job(job: dict) -> dict:
+def _enrich_job(job: dict, queue_position: int | None = None) -> dict:
     phase, phase_detail = _job_phase(job)
-    live_log = _read_job_log(job["id"], max_chars=1800) if job["status"] == "rendering" else ""
+    live_log = _read_job_log(job["id"], max_chars=3000) if job["status"] == "rendering" else ""
+    try:
+        updated = datetime.fromisoformat(job["updated_at"])
+        elapsed = max(0, int((datetime.now(timezone.utc) - updated).total_seconds())) if job["status"] in {"rendering", "cleaning"} else 0
+    except (TypeError, ValueError):
+        elapsed = 0
     return {
         **job,
         "phase": phase,
         "phase_detail": phase_detail,
         "live_log": live_log,
+        "queue_position": queue_position,
+        "elapsed_seconds": elapsed,
     }
 
 
 @app.get("/api/jobs")
 def jobs(x_access_token: str | None = Header(default=None)) -> dict:
     _check_auth(x_access_token)
-    return {"jobs": [_enrich_job(job) for job in db.list_jobs()]}
+    records = db.list_jobs()
+    queued = sorted((job for job in records if job["status"] == "queued"), key=lambda job: (job["created_at"], job["id"]))
+    positions = {job["id"]: index for index, job in enumerate(queued, 1)}
+    return {"jobs": [_enrich_job(job, positions.get(job["id"])) for job in records]}
+
+
+@app.get("/api/jobs/{job_id}/log")
+def job_log(job_id: str, x_access_token: str | None = Header(default=None)) -> dict:
+    _check_auth(x_access_token)
+    if not db.get_job(job_id):
+        raise HTTPException(404, "Job not found")
+    return {"log": _read_job_log(job_id, max_chars=100_000)}
 
 
 async def _save_upload(upload: UploadFile | None, batch_id: str, name: str) -> str | None:
@@ -320,15 +355,14 @@ def cancel_job(job_id: str, x_access_token: str | None = Header(default=None)) -
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    if job["status"] != JobStatus.QUEUED.value:
+    if not db.cancel_queued_job(job_id):
         raise HTTPException(409, "Only queued jobs can be cancelled")
-    db.update_job(job_id, status=JobStatus.CANCELLED.value)
     return {"ok": True}
 
 
 @app.get("/api/jobs/{job_id}/video")
-def video(job_id: str, token: str = Query(...)):
-    _check_auth(token)
+def video(job_id: str, token: str | None = Query(default=None), x_access_token: str | None = Header(default=None)):
+    _check_auth(x_access_token or token)
     job = db.get_job(job_id)
     if not job or job["status"] != JobStatus.COMPLETE.value or not job["output_clean"]:
         raise HTTPException(404, "Video not ready")
@@ -336,8 +370,8 @@ def video(job_id: str, token: str = Query(...)):
 
 
 @app.get("/api/jobs/{job_id}/download")
-def download(job_id: str, token: str = Query(...)):
-    _check_auth(token)
+def download(job_id: str, token: str | None = Query(default=None), x_access_token: str | None = Header(default=None)):
+    _check_auth(x_access_token or token)
     job = db.get_job(job_id)
     if not job or job["status"] != JobStatus.COMPLETE.value or not job["output_clean"]:
         raise HTTPException(404, "Video not ready")
@@ -351,8 +385,8 @@ def download(job_id: str, token: str = Query(...)):
 
 
 @app.get("/api/download.zip")
-def download_zip(ids: str = Query(...), token: str = Query(...)):
-    _check_auth(token)
+def download_zip(ids: str = Query(...), token: str | None = Query(default=None), x_access_token: str | None = Header(default=None)):
+    _check_auth(x_access_token or token)
     wanted = [i for i in ids.split(",") if i][:100]
     mem = io.BytesIO()
     included = []

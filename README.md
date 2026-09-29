@@ -1,659 +1,80 @@
-<p align="center">
-  <img src="assets/ugc-factory-hero.svg" alt="UGC Factory" width="100%">
-</p>
+# UGC Factory
 
-<p align="center">
-  Self-hosted short-form video generation on ephemeral Runpod GPUs.
-  <br>
-  Local models. Shared queue. Clean vertical exports. No persistent Runpod volume.
-</p>
+A local-first studio for making short vertical videos on a temporary Runpod GPU. Start a session, create clips with open video models, download the results, and terminate the Pod. There is no Network Volume or permanent cloud library.
 
-<p align="center">
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#models">Models</a> ·
-  <a href="#two-person-workflow">Team workflow</a> ·
-  <a href="#ending-a-session">Ending a session</a> ·
-  <a href="#troubleshooting">Troubleshooting</a>
-</p>
+## Start
 
----
-
-## What this is
-
-UGC Factory is a small internal render workspace for high-volume short-form video testing.
-
-It has one job:
-
-> Start a temporary GPU, generate a lot of short vertical clips, keep the useful files, then terminate the machine.
-
-It is intentionally not a full editing suite, social scheduler, credit system or permanent media library.
-
-### V1
-
-| Capability | Included |
-|---|---:|
-| LTX-2.5 | Yes |
-| Wan 2.2 I2V | Yes |
-| SkyReels V3 | Yes |
-| Start / reference frame | Yes |
-| Native end frame | LTX-2.5 |
-| Duration | 4–10s where supported |
-| Final output | 720 × 1280 |
-| Batch queue | 1–100 variations |
-| Shared workspace | Yes |
-| MP4 metadata cleaning | Yes |
-| ZIP export | Yes |
-| Persistent Runpod volume | No |
-| Persistent cloud history | No |
-
-> [!IMPORTANT]
-> The launcher requests no Runpod Network Volume. Model files, uploads, outputs and the local queue database exist only on the temporary Pod. Terminating the Pod deletes that local state.
-
----
-
-## Session lifecycle
-
-<p align="center">
-  <img src="assets/session-architecture.svg" alt="UGC Factory session lifecycle" width="100%">
-</p>
-
-The architecture is deliberately disposable.
-
-```text
-local launcher
-    ↓
-fresh Runpod Pod
-    ↓
-load selected model
-    ↓
-shared render queue
-    ↓
-720 × 1280 clean MP4
-    ↓
-download
-    ↓
-terminate Pod
-```
-
-The trade-off is simple:
-
-- no persistent storage bill between sessions
-- model weights download again on the next fresh session
-
----
-
-# Quick start
-
-The normal setup no longer requires shell exports.
-
-## 1. Clone
+You need a Runpod account with GPU credit, a Runpod API key, and a Hugging Face token with access to [Lightricks/LTX-2.5](https://huggingface.co/Lightricks/LTX-2.5). Accept that model's terms on Hugging Face before starting. On first launch, the script installs its small local Python runtime; macOS and Linux need Bash, curl, and a browser.
 
 ```bash
 git clone https://github.com/voekee/ugc-factory.git
 cd ugc-factory
-```
-
-## 2. Start the local launcher
-
-```bash
 bash start.sh
 ```
 
-On first run the script creates a small local Python environment, starts the onboarding app on `127.0.0.1`, and opens your browser automatically.
+The launcher opens on `127.0.0.1`. Paste both keys once. They are stored in `~/.ugc-factory/config.json` with owner-only permissions, outside the repository. You can remove them with **Forget saved keys** after ending the active session. The launcher verifies Runpod access, Hugging Face token validity, and access to the gated LTX checkpoint before renting a GPU.
 
-The browser setup explains:
+Choose a live GPU offer. The launcher shows only compatible NVIDIA GPUs with at least 48 GB of VRAM, displays the current price and stock, and marks the best value. The default is 48 GB. Choose 1, 3, or 5 hours and review the maximum estimated compute **plus container disk** cost. No Network Volume is requested. The default container disk is 180 GB and exists only with the Pod.
 
-1. where to paste your **Runpod API key**
-2. where to paste your **Hugging Face token** for LTX-2.5
-3. which GPU, session length and ephemeral disk to use
-4. what is stored locally
-5. what happens when the Pod is terminated
+Click **Start session** once. The launcher waits for the workspace health check and opens the authenticated studio. Keep the launcher tab available: it reconnects to the active session after a refresh and can terminate the Pod. **Closing a tab does not stop GPU billing.**
 
-Keys can be remembered on this computer in:
+## Create and download
 
-```text
-~/.ugc-factory/config.json
-```
+1. Enter a creator name.
+2. Choose LTX-2.5 for start-frame or start-and-end-frame video, or SkyReels V3 for a reference-driven shot.
+3. Drop an image or use **Choose image**, write a motion prompt, choose duration and variations, then generate.
+4. Watch one **Rendering** job and the numbered **Queued** jobs. Queued jobs can be cancelled. Open **Live log** for technical progress.
+5. Play completed clips in the library, download one MP4 or select several for a ZIP, then end the session.
 
-The file is created with owner-only permissions where the operating system supports them. It lives outside this Git repository.
+The Pod processes one GPU-heavy job at a time. Completed files remain available only while that Pod exists. The first render for each model downloads weights into ephemeral storage; later renders in the same session reuse those files. A new Pod downloads them again.
 
-> [!NOTE]
-> “Saved locally” means the credentials are not committed to GitHub or saved in browser storage. Credentials required by a render session are still transmitted to the temporary Runpod Pod as environment variables for that session. The Pod is ephemeral and those values disappear with it when terminated.
+| Model | Input | Duration | Status |
+|---|---|---:|---|
+| LTX-2.5 distilled two-stage | Start frame; optional end frame | 4–10 s | Real 4 s renders verified on a 48 GB Blackwell MIG GPU |
+| SkyReels V3 Reference-to-Video | Reference image | 5 s | Official reference path; GPU retest pending after baked-runtime fix |
+| Wan 2.2 I2V A14B | Start frame | — | Disabled: the official recipe calls for at least 80 GB VRAM |
 
-## 3. Click Start GPU
+Wan is intentionally absent from the production model picker. [Wan's official instructions](https://github.com/Wan-Video/Wan2.2) place I2V A14B at 80 GB or more, above this studio's normal 48 GB target. SkyReels uses the [official V3 reference model](https://github.com/SkyworkAI/SkyReels-V3) and accepts one reference image in this UI; that image is **not** a guaranteed first frame. Its end-frame control is not exposed because the reference model does not support it.
 
-The onboarding page creates the Pod and opens the render workspace automatically once the container responds.
+Outputs are normalized to 720×1280 H.264/yuv420p MP4 at 24 fps with faststart and ordinary metadata removed. `ffprobe` checks duration, video stream, dimensions and format before a result is marked Ready; a full decode catches damaged frames. A short first use may spend several minutes downloading model weights and loading them before inference begins.
 
-The default session is:
+## End the session and billing
 
-| Setting | Default |
-|---|---|
-| Container | `ghcr.io/voekee/ugc-factory:latest` |
-| GPU | NVIDIA GeForce RTX 5090 |
-| Cloud | Community |
-| Session | 5 hours |
-| Ephemeral disk | 350 GB |
-| Network Volume | none |
+Download everything you need, then use **End session** in the studio or **Terminate Pod** in the launcher. Normal termination warns about queued work and undownloaded outputs. The launcher confirms that Runpod no longer lists the Pod before reporting billing stopped. Container disk and all model files disappear with termination. There is no Network Volume and no recurring storage from this setup after termination.
 
-The onboarding page remembers those choices locally too.
+If the workspace tab is closed, reopen `bash start.sh` and the local launcher reconnects to the saved active session. A **Copy session token** fallback is available for sharing a workspace with a trusted collaborator. Teammates need the workspace link and session token, not the Runpod or Hugging Face keys. On a second computer, clone the repo, run `bash start.sh`, and enter that computer's own credentials; local configuration is deliberately not synchronized.
 
-## 4. First GPU test
+## Costs
 
-Start small:
+The launcher reads live Runpod GPU offers. Its maximum-spend estimate is the selected GPU's hourly rate plus container disk at Runpod's [published $0.10/GB/month rate](https://www.runpod.io/pricing), prorated over 730 hours, multiplied by the chosen session length. Actual billing is determined by Runpod and stops only when the Pod is terminated. GPU availability and prices change; refresh the offer list before starting.
 
-```text
-Model        LTX-2.5
-Duration     4 seconds
-Variations   1
-Start frame  one valid image
-End frame    empty
-```
+## Troubleshooting
 
-Example prompt:
+- **No GPUs shown:** raise the price filter or refresh. GPUs below 48 GB and older FP8-incompatible families are excluded for the current models.
+- **Hugging Face access denied:** accept the LTX-2.5 model terms and use a token allowed to read gated repositories. The launcher checks this before Pod creation.
+- **Container does not start:** check the Pod/system log in the Runpod console and confirm `ghcr.io/voekee/ugc-factory:latest` is public. The launcher waits for the actual workspace health check, not merely container telemetry.
+- **First render is slow:** model weights are downloaded on first use of each Pod. The queue log distinguishes download, loading, inference, and finalization where the renderer reports them.
+- **Failed render:** open the job's error and live log. Corrupt or truncated output is rejected before entering the library.
+- **Browser closed while Pod runs:** restart the launcher, reconnect, download results, and terminate. Runpod's Pods page is the final authority if the local network cannot verify termination.
 
-```text
-Natural handheld smartphone footage. The person looks down at the package
-and begins opening the top flap. Keep the movement small and realistic.
-Normal indoor lighting, subtle camera movement, no cinematic motion.
-```
+## Local development
 
-Then scale:
-
-```text
-1 clip
-→ verify
-→ 10 clips
-→ verify speed and quality
-→ larger batches
-```
-
-## Advanced CLI
-
-The old CLI still exists for automation and power users:
-
-```bash
-export RUNPOD_API_KEY='...'
-export HF_TOKEN='hf_...'
-
-python launcher/runpod_launcher.py \
-  --image ghcr.io/voekee/ugc-factory:latest \
-  --gpu 'NVIDIA GeForce RTX 5090' \
-  --hours 5 \
-  --disk 350 \
-  --rate .99
-```
-
-# Workspace
-
-The interface is deliberately small.
-
-### Generation
-
-Choose:
-
-- creator
-- model
-- start / reference frame
-- optional end frame where supported
-- prompt
-- duration
-- number of variations
-
-### Queue
-
-Everyone in the same session writes into one shared queue.
-
-One Pod in V1 represents one GPU, so jobs render sequentially.
-
-### Library
-
-Completed clips appear in the session library.
-
-You can:
-
-- preview a video
-- download one MP4
-- select several clips
-- export selected clips as a ZIP
-
-Nothing in the library is permanent after Pod termination.
-
----
-
-# Models
-
-## LTX-2.5
-
-Recommended default.
-
-Best fit in V1 for:
-
-- many iterations
-- short controlled movement
-- first-frame and last-frame control
-- 4–10 second shots
-
-| Control | Support |
-|---|---:|
-| Start frame | Yes |
-| End frame | Yes |
-| Duration | 4–10s |
-| Audio path | Available |
-| Final export | 720 × 1280 |
-
-The adapter uses the fast distilled pipeline.
-
----
-
-## Wan 2.2 I2V A14B
-
-Use it when you want a different motion or fidelity profile.
-
-| Control | Support |
-|---|---:|
-| Start frame | Yes |
-| End frame | No |
-| Duration | 4–10s |
-| Final export | 720 × 1280 |
-
-The upstream checkpoint is large, roughly 126 GB.
-
-With this project's ephemeral storage model, first use in every fresh Pod requires another download.
-
----
-
-## SkyReels V3
-
-Use it for reference-driven shots where subject or product consistency matters.
-
-| Control | Support |
-|---|---:|
-| Reference frame | Yes |
-| End frame | No |
-| Duration | 5s |
-| Resolution path | 720p |
-
-The workspace only exposes controls that the selected adapter actually supports.
-
----
-
-# Two-person workflow
-
-Both people use the same dashboard URL and temporary session token.
-
-Example:
-
-```text
-Mehmet
-20 × LTX unboxing jobs
-
-Joshua
-20 × SkyReels reaction jobs
-```
-
-The queue keeps the creator attached to every job.
-
-Your teammate needs:
-
-- dashboard URL
-- temporary session token
-
-They do not need:
-
-- `RUNPOD_API_KEY`
-- `HF_TOKEN`
-
----
-
-# Output pipeline
-
-Every successful generation is finalized before it appears as a downloadable file.
-
-```text
-raw model output
-       ↓
-FFmpeg
-       ↓
-720 × 1280
-H.264 / yuv420p
-audio preserved when present
-container metadata removed
-chapters removed
-       ↓
-ExifTool
-       ↓
-clean MP4
-```
-
-The raw intermediate is deleted after the clean file is created.
-
-This removes ordinary file and container metadata. It does not remove visible watermarks, perceptual fingerprints or metadata a social platform creates after upload.
-
----
-
-# Ending a session
-
-When you are finished:
-
-1. Let active jobs finish.
-2. Download every file you want to keep.
-3. Click **Terminate Pod**.
-4. Confirm.
-5. The Pod and its local disk disappear.
-
-Use **Terminate**, not merely Stop, if your goal is to leave no UGC Factory Pod storage behind.
-
-```text
-render
-  ↓
-download
-  ↓
-terminate
-  ↓
-Pod deleted
-local disk deleted
-no Network Volume
-```
-
-## Termination guard
-
-Normal termination is blocked while:
-
-- jobs are queued
-- a job is rendering
-- a job is being finalized
-- completed outputs remain marked undownloaded
-
-Force termination is available, but anything left only on that Pod is lost.
-
-## Runtime watchdog
-
-```bash
-bash launcher/start.sh --hours 5
-```
-
-starts a maximum-runtime watchdog.
-
-It exists to prevent an accidentally forgotten GPU from running indefinitely.
-
-Download important outputs before the deadline.
-
----
-
-# Cost model
-
-There are no per-generation application credits.
-
-The main cost is the Runpod session itself:
-
-```text
-GPU price per hour
-×
-time the Pod exists
-```
-
-UGC Factory deliberately does not keep a Network Volume or permanent model cache.
-
-That makes it most useful for concentrated sessions:
-
-```text
-prepare frames first
-→ start GPU
-→ render for a few hours
-→ download
-→ terminate
-```
-
-instead of repeatedly starting a GPU for a single clip.
-
----
-
-# Recommended workflow
-
-Before launching Runpod:
-
-1. Prepare your start frames.
-2. Prepare prompts.
-3. Decide which shots need end frames.
-4. Keep the actual GPU session focused on inference.
-
-During the session:
-
-1. Render one LTX test.
-2. Queue 10 variants.
-3. Check quality.
-4. Scale the batch.
-5. Use Wan or SkyReels only when their strengths are useful.
-6. Download good outputs continuously.
-7. Terminate when finished.
-
-Short shots are easier to control than asking one generation to carry an entire ad.
-
----
-
-# Local development
-
-You can test the complete application flow without a GPU.
-
-Requirements:
-
-- Python 3.11+
-- FFmpeg
-- ExifTool
+The local mock renderer exercises the queue and MP4 pipeline without renting a GPU. Install FFmpeg and ExifTool, then:
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
+.venv/bin/pip install -r requirements.txt
+APP_ACCESS_TOKEN=dev UGC_RENDERER_MODE=mock DATA_DIR=/tmp/ugc-factory-data \
+  .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Set:
-
-```text
-APP_ACCESS_TOKEN=dev
-UGC_RENDERER_MODE=mock
-```
-
-Run:
+Open `http://127.0.0.1:8000/#token=dev`. The mock produces test MP4s and is never used by the Runpod launcher. To run checks:
 
 ```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-Open:
-
-```text
-http://localhost:8000
-```
-
-Enter token:
-
-```text
-dev
-```
-
-The mock renderer creates placeholder MP4s so the queue, finalization, library, ZIP export and termination guard can be tested without CUDA.
-
----
-
-# Tests
-
-```bash
-pytest -q
-python -m compileall app launcher tests
-bash -n scripts/*.sh launcher/start.sh
+.venv/bin/pytest -q
+python3 -m compileall app launcher
+bash -n start.sh launcher/start.sh scripts/*.sh
 node --check static/app.js
 ```
 
-CI covers:
-
-- renderer capabilities
-- multi-user queue
-- output normalization
-- metadata removal
-- preview
-- ZIP export
-- download-state tracking
-- termination guard
-- mock end-to-end flow
-
----
-
-# Troubleshooting
-
-## Runpod cannot pull the image
-
-Check:
-
-1. **Actions → Build container** completed successfully.
-2. The GHCR package exists.
-3. The package is public, or Runpod has registry credentials.
-
-Do not solve this by committing a GitHub token.
-
----
-
-## LTX returns Hugging Face 401 / 403
-
-Check:
-
-1. your account has model access
-2. your token has read permission
-3. you exported `HF_TOKEN` before starting the Pod
-
-Then create a fresh session.
-
----
-
-## RTX 5090 is unavailable
-
-Pass another compatible Runpod GPU type:
-
-```bash
-bash launcher/start.sh \
-  --gpu 'YOUR RUNPOD GPU TYPE' \
-  --hours 5 \
-  --disk 350
-```
-
-Availability changes over time.
-
----
-
-## First generation takes a long time
-
-Expected on a fresh Pod.
-
-First use can include:
-
-- cloning pinned renderer code
-- setting up renderer dependencies
-- downloading model weights
-- loading the model
-
-Later jobs using the same renderer in the same session reuse those local files.
-
----
-
-## Wan consumes a lot of disk
-
-Expected.
-
-Its checkpoint is large.
-
-If you intentionally load several large renderers in the same session, increase the ephemeral disk:
-
-```bash
-bash launcher/start.sh --disk 450 --hours 5
-```
-
-Check your selected Runpod resource pricing before doing so.
-
----
-
-## Termination is blocked
-
-Make sure:
-
-- the queue is empty
-- nothing is rendering or finalizing
-- completed outputs you want have been downloaded
-
-Then terminate again.
-
----
-
-# Security
-
-Never commit:
-
-```text
-RUNPOD_API_KEY
-HF_TOKEN
-APP_ACCESS_TOKEN
-```
-
-`.env` is ignored by Git.
-
-The temporary dashboard token is meant to be shared only with people who should use that session.
-
-Terminate the Pod and the session-local database, model cache, inputs and outputs disappear with it.
-
----
-
-# Reproducibility
-
-Renderer source is pinned instead of pulling a moving branch at inference time.
-
-| Renderer | Revision |
-|---|---|
-| LTX-2 | `a95ab856bf29407b6b066ede0abe1846050db56c` |
-| Wan 2.2 | `1ea34ff48f87168174e12956e200b1d908b1c5ff` |
-| SkyReels V3 | `28c771e8456341be6a213e3d1133ed1fd19bf75d` |
-
-Model checkpoints still come from their upstream repositories.
-
----
-
-# Architecture
-
-```text
-Dashboard / Queue
-       │
-       ▼
-Renderer adapter
-       │
-  ┌────┼────┐
-  ▼    ▼    ▼
- LTX  Wan  SkyReels
-```
-
-A future renderer can be added without redesigning the queue, metadata finalizer or Runpod lifecycle.
-
----
-
-# Scope
-
-V1 intentionally does not include:
-
-- payments
-- accounts
-- persistent cloud history
-- persistent model storage
-- multi-GPU scheduling
-- editing timeline
-- automatic social publishing
-- paid external generation APIs
-
-The product stays narrow on purpose.
-
-**Start the GPU. Render. Keep what is useful. Terminate.**
-
----
-
-## License
-
-Application code is MIT licensed.
-
-Model weights are not redistributed by this repository. Review each upstream model's current license and access terms before use, especially for commercial work.
+The container pins LTX-2 source to `a95ab856bf29407b6b066ede0abe1846050db56c` and SkyReels V3 to `28c771e8456341be6a213e3d1133ed1fd19bf75d`. Runtimes are baked into the image; model weights are downloaded during the temporary session. Secrets never belong in Git, `.env` is ignored, and the browser token is removed from the URL after the studio receives it. Only share a session token with someone who should control that session.

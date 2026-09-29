@@ -13,13 +13,11 @@ import runpod
 
 
 AUTO_GPU_CANDIDATES = [
-    "NVIDIA GeForce RTX 5090",
-    "NVIDIA RTX 6000 Ada Generation",
+    "NVIDIA RTX PRO 6000 Blackwell Server Edition MIG 2g.48gb",
     "NVIDIA L40S",
-    "NVIDIA RTX A6000",
-    "NVIDIA A40",
-    "NVIDIA A100 80GB PCIe",
-    "NVIDIA GeForce RTX 4090",
+    "NVIDIA RTX 6000 Ada Generation",
+    "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "NVIDIA H100 PCIe",
 ]
 
 
@@ -60,12 +58,12 @@ def _create_single_pod(
         container_disk_in_gb=disk,
         ports="8000/http",
         env=env,
-        start_ssh=True,
+        start_ssh=False,
     )
 
     pod_id = str(pod["id"])
     dashboard_url = f"https://{pod_id}-8000.proxy.runpod.net"
-    workspace_url = f"{dashboard_url}/?session_token={quote(access, safe='')}"
+    workspace_url = f"{dashboard_url}/#token={quote(access, safe='')}"
 
     return {
         "pod_id": pod_id,

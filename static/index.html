@@ -40,14 +40,14 @@
       <div class="sidebar-bottom">
         <button id="terminate" class="side-item danger-side" title="Terminate Pod">
           <svg viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
-          <span>End</span>
+          <span>End session</span>
         </button>
       </div>
     </aside>
 
     <main class="studio-main">
       <header class="studio-header">
-        <div><h1>Create</h1><p>Generate short-form UGC video with local models.</p></div>
+        <div><h1>Create</h1><p>Make your next scene.</p></div>
         <div class="header-actions">
           <div class="creator-control"><span>Creator</span><input id="owner" placeholder="Joshua" maxlength="40" /></div>
           <div class="session-pill"><span class="live-dot"></span><span>Live</span><i></i><span id="sessionText">GPU session</span></div>
@@ -56,20 +56,20 @@
 
       <section id="librarySection" class="media-stage">
         <div class="stage-head">
-          <div><span class="stage-kicker">Session library</span><h2>Your renders</h2></div>
+          <div><h2>Your renders</h2></div>
           <div class="stage-actions">
             <button id="selectAll" class="button button-light">Select ready</button>
             <button id="downloadSelected" class="button button-light">Download selected</button>
           </div>
         </div>
         <div id="gallery" class="media-grid">
-          <div class="empty-gallery"><div class="empty-icon">UF</div><strong>No renders yet</strong><span>Your first generation will appear here.</span></div>
+          <div class="empty-gallery"><strong>A canvas for what comes next.</strong><span>Your finished videos will live here until this session ends.</span></div>
         </div>
       </section>
 
       <section class="composer-wrap">
         <div class="composer-card">
-          <div class="composer-modebar"><span class="mode-label">Video</span><span class="format-label">9:16 · 720p</span></div>
+          <div class="composer-modebar"><span class="mode-label">New video</span><span class="format-label">9:16 · 720 × 1280</span></div>
           <div class="frames-row">
             <div class="frame-drop" id="startDrop" data-frame="start">
               <input id="startFrame" class="frame-input" type="file" accept="image/png,image/jpeg,image/webp" />
@@ -118,7 +118,7 @@
       </section>
 
       <footer class="studio-footer">
-        <span>Ephemeral session. Download what you want to keep.</span>
+        <span>Closing this page does not end your GPU session. Download videos before you terminate the Pod.</span>
         <button id="footerTerminate" class="text-danger">Terminate Pod</button>
       </footer>
     </main>
@@ -126,7 +126,7 @@
     <div id="queueBackdrop" class="drawer-backdrop hidden"></div>
     <aside id="queueDrawer" class="queue-drawer">
       <div class="drawer-head">
-        <div><span>Render queue</span><strong id="queueCount">0 active</strong></div>
+        <div><span>Render queue</span><strong id="queueCount">0 rendering · 0 queued</strong></div>
         <button id="queueClose" class="icon-button">×</button>
       </div>
       <div id="queue" class="queue-list"><div class="queue-empty">No active renders.</div></div>

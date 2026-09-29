@@ -44,6 +44,7 @@ STATE: dict[str, Any] = {
     "selected_cloud": "",
     "error": "",
 }
+LAUNCH_LOCK = threading.Lock()
 
 GPU_QUERY = """
 query {
@@ -242,7 +243,9 @@ def _discover_gpu_offers(api_key: str) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             continue
 
-        if vram < 24:
+        # LTX-2.5's tested FP8 path needs a modern GPU with 48 GB or more.
+        # Keep the offer list aligned with the models actually exposed by the workspace.
+        if vram < 48:
             continue
 
         display_name = str(gpu.get("displayName") or gpu_id.replace("NVIDIA ", ""))
@@ -250,11 +253,7 @@ def _discover_gpu_offers(api_key: str) -> list[dict[str, Any]]:
         # The default LTX-2.5 path uses FP8 and should not be offered on older
         # Ampere cards. Those cards remain valid for other workloads, but they
         # are a poor default for this factory and can fail after paid startup.
-        incompatible_ltx = (
-            "A40" in gpu_id
-            or "A100" in gpu_id
-            or "RTX A6000" in gpu_id
-        )
+        incompatible_ltx = any(name in gpu_id for name in ("A40", "A100", "RTX A6000"))
         if incompatible_ltx:
             continue
 
@@ -286,7 +285,14 @@ def _discover_gpu_offers(api_key: str) -> list[dict[str, Any]]:
                 "stock": str(stock or "").upper(),
             })
 
-    offers.sort(key=lambda item: (item["price_per_hour"], -item["vram_gb"], item["name"]))
+    def value_rank(item: dict[str, Any]) -> tuple[float, int, int]:
+        name = item["gpu_id"]
+        tier = 0 if "Blackwell" in name else 1 if "H100" in name or "H200" in name else 2
+        return item["price_per_hour"], tier, -item["vram_gb"]
+
+    offers.sort(key=value_rank)
+    if offers:
+        offers[0]["recommended"] = True
     return offers
 
 
@@ -481,17 +487,8 @@ def _recover_active_session() -> dict[str, Any] | None:
 
 
 def _session_status_payload() -> dict[str, Any]:
-    if STATE.get("pod_id"):
-        session = {
-            "pod_id": STATE["pod_id"],
-            "dashboard_url": STATE["dashboard_url"],
-            "workspace_url": STATE["workspace_url"],
-            "session_token": STATE.get("session_token", ""),
-            "selected_gpu": STATE["selected_gpu"],
-            "selected_cloud": STATE["selected_cloud"],
-        }
-    else:
-        session = _recover_active_session() or {}
+    # Always check Runpod. An in-memory Pod ID must not survive external termination.
+    session = _recover_active_session() or {}
 
     if session:
         STATE.update({
@@ -507,25 +504,7 @@ def _session_status_payload() -> dict[str, Any]:
     health_ready = _probe_workspace(dashboard_url) if dashboard_url else False
 
     progress = _progress_snapshot(session, health_ready) if session.get("pod_id") else {}
-    runtime_ready = bool(
-        progress.get("runtime_reported")
-        and int(progress.get("container_uptime_seconds") or 0) >= 8
-    )
-    ready = bool(health_ready or runtime_ready)
-
-    if ready and not health_ready:
-        progress = {
-            **progress,
-            "stage": "container_ready",
-            "stage_label": "Container ready",
-            "stage_detail": (
-                "Runpod reports a healthy running container. "
-                "The local Python health probe could not verify the proxy directly, "
-                "so the workspace can be opened now."
-            ),
-            "progress_percent": 96,
-            "eta_text": "Open workspace",
-        }
+    ready = bool(health_ready)
 
     workspace_url = str(session.get("workspace_url") or "")
     session_token = str(session.get("session_token") or STATE.get("session_token") or "")
@@ -538,7 +517,7 @@ def _session_status_payload() -> dict[str, Any]:
         session_token = token_values[0] if token_values else ""
 
     if dashboard_url and session_token:
-        workspace_url = f"{dashboard_url}/?session_token={urlencode({'v': session_token})[2:]}"
+        workspace_url = f"{dashboard_url}/#token={urlencode({'v': session_token})[2:]}"
 
     return {
         **STATE,
@@ -582,6 +561,15 @@ def _terminate_active_session() -> dict[str, Any]:
         message = str(exc).lower()
         if "not found" not in message and "does not exist" not in message:
             raise
+
+    # Runpod can acknowledge termination before its Pod list reflects it.
+    # Keep the local record until the Pod is actually absent.
+    for _ in range(12):
+        if not any(str(pod.get("id") or "") == pod_id for pod in runpod.get_pods(api_key=api_key)):
+            break
+        time.sleep(1)
+    else:
+        raise RuntimeError("Runpod has not confirmed Pod removal yet. Refresh status before assuming billing stopped.")
 
     _clear_active_session()
     return {"ok": True, "pod_id": pod_id}
@@ -800,10 +788,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/forget":
             try:
+                if _recover_active_session():
+                    raise ValueError("Terminate the active Pod before forgetting its Runpod key and recovery details.")
                 CONFIG_PATH.unlink(missing_ok=True)
                 self._json({"ok": True})
-            except OSError as exc:
-                self._json({"error": str(exc)}, 500)
+            except (OSError, ValueError) as exc:
+                self._json({"error": str(exc)}, 400)
             return
 
         if parsed.path == "/api/terminate-active":
@@ -817,7 +807,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
 
-        if STATE["launching"]:
+        if not LAUNCH_LOCK.acquire(blocking=False):
             self._json({"error": "A Pod is already being created."}, 409)
             return
 
@@ -830,6 +820,15 @@ class Handler(BaseHTTPRequestHandler):
 
             if not runpod_key:
                 raise ValueError("Runpod API key is missing. Go back to Credentials.")
+            if not hf_token:
+                raise ValueError("A Hugging Face token with LTX-2.5 access is required before renting a GPU.")
+            if _recover_active_session():
+                raise ValueError("A UGC Factory Pod is already active. Reconnect or terminate it before starting another.")
+            existing = [pod for pod in runpod.get_pods(api_key=runpod_key)
+                        if str(pod.get("name") or "").startswith("ugc-factory-")]
+            if existing:
+                raise ValueError("Runpod already has a UGC Factory Pod. Reconnect to or terminate it before renting another GPU.")
+            _validate_hf_token(hf_token)
 
             gpu = str(payload.get("gpu") or "").strip()
             cloud = str(payload.get("cloud") or "").strip().upper()
@@ -848,8 +847,13 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Session length must be between 0.25 and 24 hours.")
             if not 100 <= disk <= 1000:
                 raise ValueError("Ephemeral disk must be between 100 and 1000 GB.")
-            if price < 0:
-                raise ValueError("GPU price is invalid.")
+            offer = next((item for item in _discover_gpu_offers(runpod_key)
+                          if item["gpu_id"] == gpu and item["cloud"] == cloud), None)
+            if offer is None:
+                raise ValueError("That GPU offer is no longer available or is incompatible. Refresh GPU availability.")
+            if vram != offer["vram_gb"]:
+                raise ValueError("GPU memory changed. Refresh GPU availability.")
+            price = offer["price_per_hour"]
 
             image = str(payload.get("image") or saved.get("image") or DEFAULTS["image"]).strip()
             _check_container_image_pullable(image)
@@ -872,7 +876,7 @@ class Handler(BaseHTTPRequestHandler):
                 hours=hours,
                 disk=disk,
                 hf_token=hf_token,
-                rate=price,
+                rate=round(price + disk * 0.10 / 730, 5),
             )
 
             _write_config({
@@ -911,6 +915,8 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as exc:
             STATE.update({"launching": False, "error": str(exc)})
             self._json({"error": str(exc)}, 400)
+        finally:
+            LAUNCH_LOCK.release()
 
 
 def main() -> None:

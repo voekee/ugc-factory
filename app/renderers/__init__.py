@@ -10,7 +10,6 @@ def get_renderer(renderer_id: str):
         return MockRenderer()
     commands = {
         "ltx25": settings.ltx_runner_cmd,
-        "wan22": settings.wan_runner_cmd,
         "skyreelsv3": settings.skyreels_runner_cmd,
     }
     if renderer_id not in commands:

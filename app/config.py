@@ -20,7 +20,6 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/tmp/ugc-factory-data")
     max_upload_mb: int = 30
     ltx_runner_cmd: str = "bash scripts/run_ltx.sh"
-    wan_runner_cmd: str = "bash scripts/run_wan.sh"
     skyreels_runner_cmd: str = "bash scripts/run_skyreels.sh"
 
     @property

@@ -117,6 +117,16 @@ def next_queued_job() -> dict[str, Any] | None:
     return dict(latest)
 
 
+def cancel_queued_job(job_id: str) -> bool:
+    with _LOCK, connect() as con:
+        result = con.execute(
+            "UPDATE jobs SET status='cancelled', updated_at=? WHERE id=? AND status='queued'",
+            (utcnow(), job_id),
+        )
+        con.commit()
+        return result.rowcount == 1
+
+
 def set_kv(key: str, value: Any) -> None:
     payload = json.dumps(value)
     with _LOCK, connect() as con:

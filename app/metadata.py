@@ -44,6 +44,18 @@ def inspect_metadata(path: Path) -> dict:
     return json.loads(proc.stdout)
 
 
+def validate_source_duration(path: Path, expected_duration: float) -> None:
+    data = inspect_metadata(path)
+    video = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
+    if video is None:
+        raise RuntimeError("Renderer output has no video stream.")
+    duration = float(video.get("duration") or data.get("format", {}).get("duration") or 0)
+    if duration < expected_duration - 0.35:
+        raise RuntimeError(
+            f"Renderer output is truncated at {duration:.2f}s; expected about {expected_duration:.1f}s."
+        )
+
+
 def validate_video(path: Path, expected_duration: float) -> dict:
     """Reject truncated or malformed outputs before the UI marks them ready."""
     data = inspect_metadata(path)
@@ -70,5 +82,16 @@ def validate_video(path: Path, expected_duration: float) -> dict:
         )
     if (width, height) != (720, 1280):
         raise RuntimeError(f"Final MP4 is {width}x{height}; expected 720x1280.")
+
+    if video.get("codec_name") != "h264" or video.get("pix_fmt") != "yuv420p":
+        raise RuntimeError("Final MP4 is not H.264 yuv420p video.")
+
+    # ffprobe checks structure; a full decode catches damaged frames in an otherwise valid container.
+    decode = subprocess.run(
+        ["ffmpeg", "-v", "error", "-xerror", "-i", str(path), "-map", "0:v:0", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    if decode.returncode != 0:
+        raise RuntimeError("Final MP4 contains corrupt video frames: " + decode.stderr[-500:])
 
     return {"duration": duration, "width": width, "height": height}

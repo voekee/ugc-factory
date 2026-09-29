@@ -44,17 +44,6 @@ RENDERERS: dict[str, RendererCapabilities] = {
         supported_durations=list(range(4, 11)),
         notes="Default engine. End frame is native. Fastest starting point; first use downloads the LTX weights.",
     ),
-    "wan22": RendererCapabilities(
-        id="wan22",
-        name="Wan 2.2",
-        description="720p image-to-video all-rounder with strong fidelity and motion.",
-        recommended_for="Product shots, natural motion, higher-fidelity alternates",
-        supports_start_frame=True,
-        supports_end_frame=False,
-        supports_audio=False,
-        supported_durations=list(range(4, 11)),
-        notes="End frame is disabled. High first-use download (~126 GB), so use this when you want the Wan look, not as the default spam engine.",
-    ),
     "skyreelsv3": RendererCapabilities(
         id="skyreelsv3",
         name="SkyReels V3",

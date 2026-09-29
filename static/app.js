@@ -18,6 +18,15 @@ let duration = 4;
 let selected = new Set();
 let startFile = null;
 let endFile = null;
+let gallerySignature = '';
+const videoUrls = new Map();
+const previewObserver = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting) return;
+    previewObserver.unobserve(entry.target);
+    loadResultVideo(entry.target);
+  });
+}, {rootMargin: '300px'}) : null;
 
 async function api(path, opts = {}) {
   opts.headers = Object.assign({}, opts.headers || {}, {'X-Access-Token': token});
@@ -56,8 +65,23 @@ function esc(value = '') {
   }[char]));
 }
 
-function qsToken() {
-  return encodeURIComponent(token);
+function elapsed(seconds) {
+  const value = Math.max(0, Number(seconds || 0));
+  return String(Math.floor(value / 60)).padStart(2, '0') + ':' +
+    String(value % 60).padStart(2, '0');
+}
+
+async function downloadFile(path, filename) {
+  const response = await fetch(path, {headers: {'X-Access-Token': token}});
+  if (!response.ok) throw new Error('Download failed (HTTP ' + response.status + ').');
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
 function fileToDataUrl(file) {
@@ -200,9 +224,10 @@ function drawRenderers() {
 
   $('#renderers').innerHTML = renderers.map(item => {
     const active = renderer && renderer.id === item.id ? ' active' : '';
+    const hint = item.id === 'ltx25' ? 'Fast bulk' : 'Reference fidelity';
     return '<button type="button" class="renderer-card' + active + '" data-id="' + esc(item.id) + '">' +
       '<strong>' + esc(item.name) + '</strong>' +
-      '<small>' + esc(item.recommended_for) + '</small>' +
+      '<small>' + hint + '</small>' +
       '</button>';
   }).join('');
 
@@ -222,6 +247,9 @@ function applyRenderer() {
   }
 
   $('#rendererNote').textContent = renderer.notes;
+  $('#startDrop strong').textContent = renderer.id === 'skyreelsv3' ? 'Reference image' : 'Start frame';
+  $('#startFrameMeta').textContent = startFile ? startFile.name :
+    (renderer.id === 'skyreelsv3' ? 'Subject or product · required' : 'PNG, JPG or WEBP · required');
 
   const endWrap = $('#endFrameWrap');
   const endChoose = $('#endChoose');
@@ -347,7 +375,8 @@ async function refresh() {
     $('#sessionText').textContent =
       Math.floor(sessionResponse.elapsed_seconds / 60) + 'm · ~$' +
       Number(sessionResponse.estimated_cost_usd).toFixed(2) + ' · ' +
-      sessionResponse.active_jobs + ' active';
+      jobsResponse.jobs.filter(job => ['rendering', 'cleaning'].includes(job.status)).length + ' rendering · ' +
+      jobsResponse.jobs.filter(job => job.status === 'queued').length + ' queued';
   } catch (error) {
     if (error.status === 401) {
       localStorage.removeItem('ugc_token');
@@ -357,10 +386,16 @@ async function refresh() {
 }
 
 function drawJobs(jobs) {
-  const active = jobs.filter(job => ['queued','rendering','cleaning'].includes(job.status));
+  const openLogs = new Set(Array.from(document.querySelectorAll('.queue-log[open]'))
+    .map(item => item.closest('.queue-item')?.dataset.id));
+  const active = jobs.filter(job => ['rendering','cleaning','queued'].includes(job.status))
+    .sort((a, b) => (a.status === 'queued' ? 1 : 0) - (b.status === 'queued' ? 1 : 0) ||
+      (a.queue_position || 0) - (b.queue_position || 0));
   const results = jobs.filter(job => ['complete','failed'].includes(job.status));
+  const rendering = active.filter(job => job.status !== 'queued').length;
+  const queued = active.length - rendering;
 
-  $('#queueCount').textContent = active.length === 1 ? '1 active' : active.length + ' active';
+  $('#queueCount').textContent = rendering + ' rendering · ' + queued + ' queued';
   $('#queueBadge').textContent = String(active.length);
   $('#queueBadge').classList.toggle('hidden', active.length === 0);
 
@@ -369,10 +404,12 @@ function drawJobs(jobs) {
         const log = job.live_log
           ? '<details class="queue-log"><summary>Live log</summary><pre>' + esc(job.live_log) + '</pre></details>'
           : '';
-        return '<div class="queue-item">' +
+        return '<div class="queue-item" data-id="'+esc(job.id)+'">' +
           '<div class="queue-main">' +
             '<strong>' + esc(job.owner) + ' · ' + esc(job.renderer) + '</strong>' +
-            '<div class="queue-phase">' + esc(job.phase || job.status) + '</div>' +
+            '<div class="queue-phase">' + (job.status === 'queued' ? '#'+job.queue_position+' in queue' : esc(job.phase || job.status)) + '</div>' +
+            (job.status === 'queued' ? '<button class="cancel-job" data-id="'+esc(job.id)+'">Cancel queued</button>' :
+              '<span class="queue-elapsed">'+elapsed(job.elapsed_seconds)+' elapsed</span>') +
             '<small>' + esc(job.phase_detail || (job.prompt || '').slice(0, 90)) + '</small>' +
             log +
           '</div>' +
@@ -381,11 +418,37 @@ function drawJobs(jobs) {
       }).join('')
     : '<div class="queue-empty">No active renders.</div>';
 
+  document.querySelectorAll('.cancel-job').forEach(button => {
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        await api('/api/jobs/' + button.dataset.id + '/cancel', {method: 'POST'});
+        await refresh();
+      } catch (error) {
+        button.textContent = error.message;
+      }
+    };
+  });
+  document.querySelectorAll('.queue-item').forEach(item => {
+    const details = item.querySelector('.queue-log');
+    if (details && openLogs.has(item.dataset.id)) details.open = true;
+  });
+
+  const signature = results.map(job => job.id + ':' + job.status).join('|');
+  if (signature === gallerySignature) return;
+  gallerySignature = signature;
+  for (const [id, url] of videoUrls) {
+    if (!results.some(job => job.id === id && job.status === 'complete')) {
+      URL.revokeObjectURL(url);
+      videoUrls.delete(id);
+    }
+  }
+
   if (!results.length) {
     $('#gallery').innerHTML =
       '<div class="empty-gallery">' +
-        '<div class="empty-icon">UF</div><strong>No renders yet</strong>' +
-        '<span>Your first generation will appear here.</span>' +
+        '<strong>A canvas for what comes next.</strong>' +
+        '<span>Your finished videos will live here until this session ends.</span>' +
       '</div>';
     return;
   }
@@ -395,15 +458,13 @@ function drawJobs(jobs) {
     const checked = selected.has(job.id) ? ' checked' : '';
 
     if (!ready) {
-      return '<article class="media-card">' +
-        '<div class="media-thumb media-failed"><div><strong>Generation failed</strong>' +
-        '<div style="margin-top:6px">Open the error below for the exact renderer output.</div></div></div>' +
-        '<div class="media-card-footer">' +
-          '<div class="media-card-row"><strong>' + esc(job.owner) + '</strong><span>' +
-          esc(job.renderer) + ' · ' + job.duration + 's</span></div>' +
-          '<details class="error-details"><summary>View renderer error</summary><pre>' +
+      return '<article class="failed-row">' +
+          '<div><strong>Generation failed · ' + esc(job.renderer) + '</strong><p>' +
+          esc((job.error || 'Unknown error').split('\n')[0]) + '</p></div>' +
+          '<details class="error-details"><summary>Details</summary><pre>' +
           esc(job.error || 'Unknown error') + '</pre></details>' +
-        '</div></article>';
+          '<button class="copy-log" data-id="'+esc(job.id)+'">Copy log</button>' +
+        '</article>';
     }
 
     return '<article class="media-card">' +
@@ -414,7 +475,7 @@ function drawJobs(jobs) {
         esc(job.renderer) + ' · ' + job.duration + 's</span></div>' +
         '<div class="media-card-actions"><label><input class="check" type="checkbox" data-id="' +
         job.id + '"' + checked + '> Select</label>' +
-        '<a href="/api/jobs/' + job.id + '/download?token=' + qsToken() + '">Download</a></div>' +
+        '<button class="download-one" data-id="'+esc(job.id)+'">Download</button></div>' +
       '</div></article>';
   }).join('');
 
@@ -424,27 +485,54 @@ function drawJobs(jobs) {
     };
   });
 
+  document.querySelectorAll('.download-one').forEach(button => {
+    button.onclick = async () => {
+      try { await downloadFile('/api/jobs/'+button.dataset.id+'/download', 'ugc-'+button.dataset.id.slice(0,8)+'.mp4'); }
+      catch (error) { button.textContent = error.message; }
+    };
+  });
+  document.querySelectorAll('.copy-log').forEach(button => {
+    button.onclick = async () => {
+      try {
+        const data = await api('/api/jobs/'+button.dataset.id+'/log');
+        await navigator.clipboard.writeText(data.log || '');
+        button.textContent = 'Copied';
+      } catch (error) { button.textContent = error.message; }
+    };
+  });
+
   hydrateResultVideos();
 }
 
-async function hydrateResultVideos() {
+function hydrateResultVideos() {
   const videos = Array.from(document.querySelectorAll('.result-video'));
-
   for (const video of videos) {
     if (video.dataset.loaded === '1') continue;
     video.dataset.loaded = '1';
+    if (previewObserver) previewObserver.observe(video);
+    else loadResultVideo(video);
+  }
+}
 
+async function loadResultVideo(video) {
     const jobId = video.dataset.jobId;
 
+    if (videoUrls.has(jobId)) {
+      video.src = videoUrls.get(jobId);
+      video.load();
+      return;
+    }
+
     try {
-      const response = await fetch('/api/jobs/' + jobId + '/video?token=' + qsToken(), {
-        cache: 'no-store'
+      const response = await fetch('/api/jobs/' + jobId + '/video', {
+        cache: 'no-store', headers: {'X-Access-Token': token}
       });
 
       if (!response.ok) throw new Error('HTTP ' + response.status);
 
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
+      videoUrls.set(jobId, objectUrl);
 
       video.src = objectUrl;
       video.load();
@@ -455,11 +543,9 @@ async function hydrateResultVideos() {
         }
       }, {once:true});
 
-      video.addEventListener('emptied', () => URL.revokeObjectURL(objectUrl), {once:true});
     } catch (error) {
       video.outerHTML = '<div class="video-preview-error">Preview failed. Download the MP4 to inspect it.</div>';
     }
-  }
 }
 
 $('#selectAll').onclick = () => {
@@ -469,11 +555,13 @@ $('#selectAll').onclick = () => {
   });
 };
 
-$('#downloadSelected').onclick = () => {
+$('#downloadSelected').onclick = async () => {
   if (!selected.size) return;
-  location.href = '/api/download.zip?ids=' +
-    encodeURIComponent(Array.from(selected).join(',')) +
-    '&token=' + qsToken();
+  try {
+    await downloadFile('/api/download.zip?ids=' + encodeURIComponent(Array.from(selected).join(',')), 'ugc-videos.zip');
+  } catch (error) {
+    $('#downloadSelected').textContent = error.message;
+  }
 };
 
 async function terminatePod() {
