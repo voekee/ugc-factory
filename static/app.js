@@ -14,6 +14,27 @@ async function api(path, opts={}){
 function esc(s=''){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function qsToken(){return encodeURIComponent(token)}
 
+function updateGenerateLabel(){
+  const count=Math.max(1,Number($('#variations').value||1));
+  $('#generate').textContent=count===1?'Queue 1 video':`Queue ${count} videos`;
+}
+
+function bindFileInput(selector){
+  const input=$(selector);
+  const drop=input.closest('.drop');
+  const title=drop.querySelector('.drop-title');
+  const meta=drop.querySelector('.drop-meta');
+  const defaultTitle=title.textContent;
+  const defaultMeta=meta.textContent;
+
+  input.addEventListener('change',()=>{
+    const file=input.files?.[0];
+    drop.classList.toggle('has-file',Boolean(file));
+    title.textContent=file?file.name:defaultTitle;
+    meta.textContent=file?'Ready':defaultMeta;
+  });
+}
+
 async function login(){
   token=$('#token').value.trim();
   try{await api('/api/renderers'); localStorage.setItem('ugc_token', token); $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden'); await boot();}
@@ -24,7 +45,10 @@ $('#login').onclick=login; $('#token').onkeydown=e=>{if(e.key==='Enter')login()}
 async function boot(){
   const r=await api('/api/renderers'); renderers=r.renderers; renderer=renderers[0];
   const savedOwner=localStorage.getItem('ugc_owner'); if(savedOwner) $('#owner').value=savedOwner;
-  drawRenderers(); applyRenderer(); refresh(); setInterval(refresh,1800);
+  bindFileInput('#startFrame');
+  bindFileInput('#endFrame');
+  $('#variations').addEventListener('input',updateGenerateLabel);
+  drawRenderers(); applyRenderer(); updateGenerateLabel(); refresh(); setInterval(refresh,1800);
 }
 function drawRenderers(){
   $('#renderers').innerHTML=renderers.map(r=>`<div class="renderer-card ${renderer?.id===r.id?'active':''}" data-id="${r.id}"><strong>${esc(r.name)}</strong><small>${esc(r.recommended_for)}</small></div>`).join('');
@@ -59,12 +83,12 @@ async function refresh(){
 function drawJobs(jobs){
   const active=jobs.filter(j=>['queued','rendering','cleaning'].includes(j.status));
   $('#queueCount').textContent=`${active.length} active`;
-  $('#queue').innerHTML=active.length?active.map(j=>`<div class="queue-item"><div><strong>${esc(j.owner)} · ${esc(j.renderer)}</strong><small>${esc(j.prompt.slice(0,70))}</small></div><div class="status ${j.status}">${j.status}</div></div>`).join(''):'<div class="placeholder" style="height:120px">Queue is clear</div>';
+  $('#queue').innerHTML=active.length?active.map(j=>`<div class="queue-item"><div><strong>${esc(j.owner)} · ${esc(j.renderer)}</strong><small>${esc(j.prompt.slice(0,70))}</small></div><div class="status ${j.status}">${j.status}</div></div>`).join(''):'<div class="placeholder" style="height:120px">No active renders.</div>';
   const results=jobs.filter(j=>['complete','failed'].includes(j.status));
   $('#gallery').innerHTML=results.length?results.map(j=>{
     const ready=j.status==='complete'; const checked=selected.has(j.id)?'checked':'';
     return `<div class="video-card"><div class="video-wrap">${ready?`<video controls preload="metadata" src="/api/jobs/${j.id}/video?token=${qsToken()}"></video>`:`<div class="placeholder">Failed</div>`}</div><div class="card-meta"><div class="row"><span><input class="check" type="checkbox" data-id="${j.id}" ${checked} ${ready?'':'disabled'}> ${esc(j.owner)}</span><small>${esc(j.renderer)} · ${j.duration}s</small></div>${j.error?`<small>${esc(j.error.slice(0,140))}</small>`:''}${ready?`<a class="download" href="/api/jobs/${j.id}/download?token=${qsToken()}">Download clean MP4</a>`:''}</div></div>`
-  }).join(''):'<div class="placeholder" style="grid-column:1/-1;height:180px">Rendered videos will appear here</div>';
+  }).join(''):'<div class="placeholder library-empty" style="grid-column:1/-1;height:180px">No finished videos yet.</div>';
   document.querySelectorAll('.check').forEach(c=>c.onchange=()=>{c.checked?selected.add(c.dataset.id):selected.delete(c.dataset.id)});
 }
 $('#selectAll').onclick=()=>{document.querySelectorAll('.check:not(:disabled)').forEach(c=>{c.checked=true;selected.add(c.dataset.id)})};
