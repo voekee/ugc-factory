@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import runpod
 from runpod.api.graphql import run_graphql_query
 
 from runpod_launcher import launch_pod
@@ -73,7 +74,7 @@ def _read_config() -> dict[str, Any]:
 
 
 def _write_config(config: dict[str, Any]) -> None:
-    payload = {**config, "config_version": 3}
+    payload = {**config, "config_version": 4}
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     try:
         os.chmod(CONFIG_DIR, 0o700)
@@ -254,6 +255,125 @@ def _probe_workspace(url: str) -> bool:
         return False
 
 
+def _clear_active_session() -> None:
+    saved = _read_config()
+    if "active_session" in saved:
+        saved.pop("active_session", None)
+        _write_config(saved)
+
+    STATE.update({
+        "launching": False,
+        "pod_id": "",
+        "dashboard_url": "",
+        "workspace_url": "",
+        "selected_gpu": "",
+        "selected_cloud": "",
+        "error": "",
+    })
+
+
+def _recover_active_session() -> dict[str, Any] | None:
+    saved = _read_config()
+    session = saved.get("active_session")
+    if not isinstance(session, dict):
+        return None
+
+    pod_id = str(session.get("pod_id") or "").strip()
+    api_key = str(saved.get("runpod_api_key") or "").strip()
+    if not pod_id or not api_key:
+        return None
+
+    try:
+        runpod.api_key = api_key
+        pods = runpod.get_pods(api_key=api_key)
+    except Exception:
+        # If Runpod cannot be queried right now, keep the persisted session so
+        # a temporary network problem does not make the UI forget a paid Pod.
+        return session
+
+    active = next((pod for pod in pods if str(pod.get("id") or "") == pod_id), None)
+    if not active:
+        _clear_active_session()
+        return None
+
+    return {
+        **session,
+        "pod_status": str(
+            active.get("desiredStatus")
+            or active.get("status")
+            or active.get("runtime", {}).get("uptimeInSeconds")
+            or "RUNNING"
+        ),
+    }
+
+
+def _session_status_payload() -> dict[str, Any]:
+    if STATE.get("pod_id"):
+        session = {
+            "pod_id": STATE["pod_id"],
+            "dashboard_url": STATE["dashboard_url"],
+            "workspace_url": STATE["workspace_url"],
+            "selected_gpu": STATE["selected_gpu"],
+            "selected_cloud": STATE["selected_cloud"],
+        }
+    else:
+        session = _recover_active_session() or {}
+
+    if session:
+        STATE.update({
+            "pod_id": str(session.get("pod_id") or ""),
+            "dashboard_url": str(session.get("dashboard_url") or ""),
+            "workspace_url": str(session.get("workspace_url") or ""),
+            "selected_gpu": str(session.get("selected_gpu") or ""),
+            "selected_cloud": str(session.get("selected_cloud") or ""),
+        })
+
+    dashboard_url = str(session.get("dashboard_url") or STATE.get("dashboard_url") or "")
+    ready = _probe_workspace(dashboard_url) if dashboard_url else False
+
+    return {
+        **STATE,
+        **session,
+        "ready": ready,
+        "active": bool(session.get("pod_id")),
+        "config_path": str(CONFIG_PATH),
+    }
+
+
+def _terminate_active_session() -> dict[str, Any]:
+    saved = _read_config()
+    session = saved.get("active_session")
+    if not isinstance(session, dict) and STATE.get("pod_id"):
+        session = {
+            "pod_id": STATE["pod_id"],
+            "selected_gpu": STATE.get("selected_gpu", ""),
+            "selected_cloud": STATE.get("selected_cloud", ""),
+        }
+
+    if not isinstance(session, dict) or not session.get("pod_id"):
+        _clear_active_session()
+        return {"ok": True, "already_stopped": True}
+
+    api_key = str(saved.get("runpod_api_key") or "").strip()
+    if not api_key:
+        raise ValueError("Runpod API key is missing; cannot terminate the active Pod.")
+
+    pod_id = str(session["pod_id"])
+    runpod.api_key = api_key
+
+    try:
+        runpod.terminate_pod(pod_id)
+    except Exception as exc:
+        # If the Pod is already gone, clear local state. Otherwise surface the
+        # error so users never believe spend stopped when it might not have.
+        message = str(exc).lower()
+        if "not found" not in message and "does not exist" not in message:
+            raise
+
+    _clear_active_session()
+    return {"ok": True, "pod_id": pod_id}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "UGCFactoryLauncher/2.0"
 
@@ -319,12 +439,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/status":
-            ready = _probe_workspace(STATE["dashboard_url"]) if STATE["dashboard_url"] else False
-            self._json({
-                **STATE,
-                "ready": ready,
-                "config_path": str(CONFIG_PATH),
-            })
+            self._json(_session_status_payload())
             return
 
         self.send_error(404)
@@ -362,6 +477,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": True})
             except OSError as exc:
                 self._json({"error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/terminate-active":
+            try:
+                self._json(_terminate_active_session())
+            except Exception as exc:
+                self._json({"error": str(exc)}, 400)
             return
 
         if parsed.path != "/api/launch":
@@ -434,6 +556,16 @@ class Handler(BaseHTTPRequestHandler):
                 "selected_cloud": cloud,
                 "selected_price": price,
                 "selected_vram": vram,
+                "active_session": {
+                    "pod_id": result["pod_id"],
+                    "dashboard_url": result["dashboard_url"],
+                    "workspace_url": result["workspace_url"],
+                    "selected_gpu": result.get("selected_gpu", gpu),
+                    "selected_cloud": result.get("selected_cloud", cloud),
+                    "selected_price": price,
+                    "selected_vram": vram,
+                    "hours": hours,
+                },
             })
 
             STATE.update({
