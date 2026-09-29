@@ -71,20 +71,39 @@
         <div class="composer-card">
           <div class="composer-modebar"><span class="mode-label">Video</span><span class="format-label">9:16 · 720p</span></div>
           <div class="frames-row">
-            <label class="frame-drop" id="startDrop">
-              <input id="startFrame" type="file" accept="image/*" />
+            <div class="frame-drop" id="startDrop" data-frame="start">
+              <input id="startFrame" class="frame-input" type="file" accept="image/png,image/jpeg,image/webp" />
               <img id="startPreview" class="frame-preview hidden" alt="" />
-              <span class="frame-plus">＋</span><strong>Start frame</strong><small>Drop or click · required</small>
-            </label>
-            <label class="frame-drop" id="endFrameWrap">
-              <input id="endFrame" type="file" accept="image/*" />
+              <div class="frame-content">
+                <span class="frame-plus">＋</span>
+                <strong>Start frame</strong>
+                <small id="startFrameMeta">PNG, JPG or WEBP · required</small>
+                <button id="startChoose" type="button" class="frame-choose">Choose image</button>
+              </div>
+            </div>
+            <div class="frame-drop" id="endFrameWrap" data-frame="end">
+              <input id="endFrame" class="frame-input" type="file" accept="image/png,image/jpeg,image/webp" />
               <img id="endPreview" class="frame-preview hidden" alt="" />
-              <span class="frame-plus">＋</span><strong>End frame</strong><small id="endFrameMeta">Drop or click · optional</small>
-            </label>
+              <div class="frame-content">
+                <span class="frame-plus">＋</span>
+                <strong>End frame</strong>
+                <small id="endFrameMeta">PNG, JPG or WEBP · optional</small>
+                <button id="endChoose" type="button" class="frame-choose">Choose image</button>
+              </div>
+            </div>
           </div>
           <div class="prompt-shell"><textarea id="prompt" rows="3" placeholder="Describe the motion, action and camera behavior…"></textarea></div>
           <div class="composer-footer">
-            <div class="composer-left"><div id="renderers" class="model-switcher"></div><div id="durations" class="duration-switcher"></div></div>
+            <div class="composer-left">
+              <div class="control-group">
+                <span class="control-label">Model</span>
+                <div id="renderers" class="model-switcher"></div>
+              </div>
+              <div class="control-group">
+                <span class="control-label">Duration</span>
+                <div id="durations" class="duration-switcher"></div>
+              </div>
+            </div>
             <div class="composer-right">
               <div class="variations-control">
                 <button id="variationMinus" type="button">−</button>
