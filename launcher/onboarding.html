@@ -531,7 +531,7 @@ async function loadLibrary(){
   if(!response.videos.length){container.textContent="Completed videos are saved here while the launcher is running.";return;}
   for(const video of response.videos){
     const link=document.createElement("a");
-    link.textContent=video.job_id.slice(0,8)+" · Download video";
+    link.textContent=[video.owner,video.renderer,video.duration?video.duration+"s":"",video.job_id.slice(0,8)].filter(Boolean).join(" · ")+" · Download video";
     link.href="/api/library/"+encodeURIComponent(video.pod_id)+"/"+encodeURIComponent(video.job_id)+"?t="+encodeURIComponent(TOKEN);
     const row=document.createElement("p");row.append(link);container.append(row);
   }

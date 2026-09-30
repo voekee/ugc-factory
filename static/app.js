@@ -283,12 +283,12 @@ function applyRenderer() {
   $('#generate').disabled = renderer.available === false || sessionEnding || submitting;
   $('.format-label').textContent = renderer.id === 'h3-fl2va' ? 'Source aspect · 768p' : renderer.id === 'skyreelsv3' ? 'Reference aspect · 720p · 24 FPS' : '9:16 · 720p';
   $('#referenceWrap').classList.toggle('hidden', !(renderer.max_reference_images > 1));
-  $('.frames-row').classList.toggle('single-reference', renderer.max_reference_images > 1);
+  $('.frames-row').classList.toggle('single-reference', !renderer.supports_end_frame);
   $('#startFrameLabel').textContent = renderer.max_reference_images > 1 ? 'Reference 1 · output shape' : 'Start frame';
   if (!startFile) $('#startFrameMeta').textContent = renderer.requires_start_frame ? 'PNG, JPG or WEBP · required' : 'PNG, JPG or WEBP · optional';
 
   const endWrap = $('#endFrameWrap');
-  endWrap.classList.toggle('hidden', renderer.max_reference_images > 1);
+  endWrap.classList.toggle('hidden', !renderer.supports_end_frame);
   const endChoose = $('#endChoose');
   $('#endFrame').disabled = !renderer.supports_end_frame;
   endChoose.disabled = !renderer.supports_end_frame;

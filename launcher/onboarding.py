@@ -748,7 +748,16 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/library":
             files = []
             for path in (CONFIG_DIR / "sessions").glob("*/*.mp4"):
-                files.append({"pod_id": path.parent.name, "job_id": path.stem, "bytes": path.stat().st_size})
+                item = {"pod_id": path.parent.name, "job_id": path.stem, "bytes": path.stat().st_size,
+                        "saved_at": path.stat().st_mtime}
+                try:
+                    metadata = json.loads(path.with_suffix(".json").read_text())
+                    if isinstance(metadata, dict):
+                        item.update({key: metadata.get(key) for key in ("owner", "renderer", "duration")})
+                except (OSError, ValueError):
+                    pass
+                files.append(item)
+            files.sort(key=lambda item: item["saved_at"], reverse=True)
             self._json({"videos": files})
             return
 
