@@ -234,11 +234,11 @@ def _job_phase(job: dict) -> tuple[str, str]:
 
     if job["renderer"] == "h3-fl2va":
         return "Generating", "The resident H3 pipeline is processing this video and audio request"
-    log = _read_job_log(job["id"])
+    log = _read_job_log(job["id"], max_chars=100000 if job["renderer"] == "wan22" else 5000)
     if job["renderer"] == "wan22":
         if "[WAN] Encoding video" in log:
             return "Encoding video", "Saving the generated frames as MP4"
-        if "[WAN] Generating" in log or "%|" in log and "it/s" in log and "Fetching" not in log:
+        if "[WAN] Generating" in log:
             return "Generating", "Wan is rendering the video on the GPU"
         if "[WAN] Loading" in log:
             return "Loading model", "Moving model weights into memory"

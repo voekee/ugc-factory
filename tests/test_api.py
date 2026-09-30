@@ -91,3 +91,18 @@ def test_mock_end_to_end_download_guard(tmp_path: Path) -> None:
         settings.app_access_token = old["app_access_token"]
         settings.ugc_renderer_mode = old["ugc_renderer_mode"]
         settings.max_session_hours = old["max_session_hours"]
+
+
+def test_wan_loading_progress_is_not_inference(tmp_path, monkeypatch):
+    from app.main import _job_phase
+    monkeypatch.setattr(settings, 'data_dir', tmp_path)
+    logs = tmp_path / 'logs'
+    logs.mkdir()
+    job = {'id': 'wan-phase', 'status': 'rendering', 'renderer': 'wan22'}
+    path = logs / 'wan-phase.log'
+    path.write_text('[WAN] Loading full-quality BF16 model\n' +
+                    'Loading checkpoint shards: 100%|████| 12/12 [00:04<00:00, 2.53it/s]\n' * 100)
+    assert _job_phase(job)[0] == 'Loading model'
+    with path.open('a') as out:
+        out.write('[WAN] Generating 720p video: 4 trained Lightning steps\n')
+    assert _job_phase(job)[0] == 'Generating'
