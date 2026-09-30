@@ -1,24 +1,24 @@
 # Separate from the existing LTX image. No model checkpoints are baked into it.
 # Candidate image: must be built and GPU-smoke-tested before production rollout.
-FROM runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2404
-ARG SGLANG_REV=7b30ff26eea8b593efe00d429eb001ad446c3f2a
+# Official Linux amd64 CUDA 13 runtime, source cae69be584b8fc2daf0b03ec552710592f8738cb.
+FROM lmsysorg/sglang@sha256:5ebce9bbfe8299f3d62c0a2984b399061de4182d5aaac3ec071b0b65155b5150
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
-    SGLANG_BUILD_RUST_EXTS=none \
-    VIRTUAL_ENV=/opt/h3-venv PATH="/opt/h3-venv/bin:$PATH" \
     HF_HUB_OFFLINE=1 H3_MODEL_PATH=/runpod-volume/models/MiniMax-H3 \
     UGC_RENDERER_MODE=real DATA_DIR=/workspace/ugc-factory-data
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git ca-certificates python3-venv \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-RUN python3 -m venv --system-site-packages "$VIRTUAL_ENV"
 WORKDIR /app
 COPY requirements.txt /tmp/ugc-requirements.txt
-RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir -r /tmp/ugc-requirements.txt \
-       "sglang[diffusion] @ git+https://github.com/sgl-project/sglang.git@${SGLANG_REV}#subdirectory=python"
+# Reuse the official compiled stack, including its Rust modules and Torch/CUDA.
+# Extras are installed for this exact SGLang version, not a floating upgrade.
+RUN python -c 'from importlib.metadata import version; from pathlib import Path; Path("/tmp/h3-runtime.txt").write_text("\n".join(("sglang[diffusion]==" + version("sglang"), *(name + "==" + version(name) for name in ("torch", "torchvision", "torchaudio")))) + "\n")' \
+    && python -m pip install --no-cache-dir -r /tmp/ugc-requirements.txt -r /tmp/h3-runtime.txt
 COPY app ./app
 COPY static ./static
 COPY scripts/serve_h3.py ./scripts/serve_h3.py
 RUN python -m compileall -q app scripts \
-    && python -m pip check
+    && python -m pip check \
+    && python -c 'import torch, sglang; from pathlib import Path; assert (Path(sglang.__file__).parent / "multimodal_gen/runtime/pipelines/minimax_h3_pipeline.py").is_file(); print("H3 candidate CPU import check:", torch.__version__, torch.version.cuda); assert not torch.cuda.is_available()'
+LABEL org.ugc-factory.sglang-revision="cae69be584b8fc2daf0b03ec552710592f8738cb"
 EXPOSE 8000
 CMD ["python", "-m", "scripts.serve_h3"]
