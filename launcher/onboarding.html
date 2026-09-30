@@ -150,6 +150,9 @@
   </style>
 </head>
 <body>
+<p id="globalComputeState" role="status" style="margin:12px 24px">Checking GPU state…</p>
+<div id="orphanNotice" role="alert" style="padding:12px" hidden></div>
+<details style="margin:12px"><summary>Saved videos on this Mac</summary><div id="savedLibrary"></div></details>
 <main class="shell">
   <div class="top">
     <div class="brand"><span class="mark">UF</span><span>UGC Factory</span></div>
@@ -252,6 +255,7 @@
         <div id="sessionGpuPrice" class="price"></div>
       </div>
 
+      <div class="field"><label for="sessionModel">Model</label><select id="sessionModel"><option value="legacy">LTX-2.5 / legacy models</option><option value="h3-fl2va">MiniMax H3 — authorization required</option></select><p id="modelGate" role="status"></p></div>
       <div class="field">
         <label>Maximum session</label>
         <div class="hours">
@@ -283,7 +287,7 @@
   <section class="view" id="step4">
     <p class="eyebrow">Step 4 of 4</p>
     <h1>Starting your workspace.</h1>
-    <p class="lead">Keep this tab open for a moment. The render workspace opens automatically when the container is ready.</p>
+    <p class="lead">Keep this tab open for a moment. Open the workspace when its health check succeeds.</p>
 
     <div class="card">
       <div class="launch-card">
@@ -304,10 +308,11 @@
         </div>
       </div>
       <div id="ready" class="ready"><b>Workspace ready.</b><p>Your render workspace is responding and can be opened safely.</p></div>
-      <div class="session-warning">Closing or refreshing this browser tab does not stop the GPU. Billing stops only when the Runpod Pod is terminated.</div>
+      <div class="session-warning">The launcher checks idle sessions every 15 seconds and archives finished videos locally. Keep the launcher running. Closing this tab is safe; quitting the launcher or switching off this Mac interrupts backups. The Pod also has a hard runtime limit.</div>
       <div id="sessionControls" class="session-controls">
         <div class="left">
           <button id="openWorkspace" class="button primary">Open workspace</button>
+          <button id="endSession" class="button">End session</button>
           <button id="copySessionToken" class="button">Copy session token</button>
           <button id="refreshSession" class="button">Refresh status</button>
         </div>
@@ -444,7 +449,7 @@ function updateSessionSummary(){
   $("#sessionGpuMeta").textContent=`${selectedOffer.vram_gb} GB VRAM · ${selectedOffer.cloud==="COMMUNITY"?"Community Cloud":"Secure Cloud"}`;
   $("#sessionGpuPrice").innerHTML=`$${Number(selectedOffer.price_per_hour).toFixed(2)}<small>per hour</small>`;
   $("#estimate").textContent="$"+(selectedOffer.price_per_hour*selectedHours).toFixed(2);
-  $("#startSession").textContent=`Start ${selectedHours}h session · up to $${(selectedOffer.price_per_hour*selectedHours).toFixed(2)}`;
+  $("#startSession").textContent=`Start ${selectedHours}h session · estimated $${(selectedOffer.price_per_hour*selectedHours).toFixed(2)}`;
 }
 
 async function saveCredentials(){
@@ -483,13 +488,15 @@ function pct(value){
 
 function renderStartupStatus(status){
   if(!status) return;
+  const rate=status.actual_hourly_rate_usd ?? status.selected_price;
+  const cost=rate==null ? "Cost unavailable" : "$"+Number(rate).toFixed(2)+"/h · estimated compute $"+(Number(rate)*Number(status.elapsed_seconds||0)/3600).toFixed(3);
+  $("#podText").textContent=(status.selected_gpu||"GPU")+" · "+cost;
   $("#startupStage").textContent=status.stage_label||"Starting workspace";
   $("#startupDetail").textContent=status.stage_detail||"Waiting for Runpod status.";
   $("#elapsedTime").textContent=formatElapsed(status.elapsed_seconds);
   $("#etaText").textContent=status.eta_text||"";
-  const progress=Math.max(0,Math.min(100,Number(status.progress_percent||0)));
-  $("#startupFill").style.width=progress+"%";
-  $("#startupPercent").textContent=progress+"%";
+  $("#startupFill").parentElement.hidden=true;
+  $("#startupPercent").textContent=status.stage_label||"Waiting for status";
 
   const elapsed=Number(status.elapsed_seconds||0);
   $("#startupWarning").textContent=elapsed>=480 && !status.ready
@@ -506,10 +513,63 @@ function renderStartupStatus(status){
   }
 }
 
+$("#endSession").onclick=async()=>{
+  $("#endSession").disabled=true;
+  $("#startupStage").textContent="ENDING SESSION";
+  $("#workspaceText").textContent="Saving outputs and verifying GPU termination…";
+  try { await post("/api/end-active",{}); await pollWorkspace(); }
+  catch(error){ $("#launchError").textContent=error.message; }
+  finally { $("#endSession").disabled=false; }
+};
+
+async function loadLibrary(){
+  const response=await get("/api/library");
+  const container=$("#savedLibrary");
+  container.replaceChildren();
+  if(!response.videos.length){container.textContent="Completed videos are saved here while the launcher is running.";return;}
+  for(const video of response.videos){
+    const link=document.createElement("a");
+    link.textContent=video.job_id.slice(0,8)+" · Download video";
+    link.href="/api/library/"+encodeURIComponent(video.pod_id)+"/"+encodeURIComponent(video.job_id)+"?t="+encodeURIComponent(TOKEN);
+    const row=document.createElement("p");row.append(link);container.append(row);
+  }
+}
+loadLibrary().catch(()=>{});
+
 function renderActiveSession(status){
-  if(!status || !status.active) return false;
+  $("#globalComputeState").textContent=status?.orphan_pods?.length ? "Untracked GPU detected · see termination controls" : status?.pending_creation ? "GPU allocation uncertain · duplicate starts blocked" : status?.active ? "GPU session active · compute may be billed" : status?.last_session?.termination_verified ? "GPU TERMINATED · verified with RunPod" : "GPU OFF";
+  const notice=$("#orphanNotice");
+  notice.replaceChildren();
+  notice.hidden=!(status?.orphan_pods?.length);
+  for(const pod of status?.orphan_pods||[]){
+    const row=document.createElement("p");
+    row.textContent="Untracked UGC compute: "+pod.pod_id+" ";
+    const button=document.createElement("button");button.className="button";button.textContent="Terminate now";
+    button.onclick=async()=>{try{await post("/api/terminate-orphan",{pod_id:pod.pod_id});row.textContent="GPU compute stopped · termination verified";}catch(error){row.append(document.createTextNode(error.message));}};
+    row.append(button);notice.append(row);
+  }
+  if(status?.pending_creation){
+    go(4); $("#startupStage").textContent="Confirming GPU allocation";
+    $("#startupDetail").textContent="The allocation response was interrupted. Keep the launcher running while it checks and cleans up. New starts are blocked.";
+    $("#openWorkspace").disabled=true;
+    return true;
+  }
+  if(!status || !status.active) {
+    if(status?.last_session?.termination_verified){
+      $("#modelGate").textContent=bootstrapData?.lifecycle_test ? "Development test: real paid GPU, synthetic renderer, 75-second idle shutdown, 15-minute hard limit." : "GPU TERMINATED · previous session termination verified";
+      $("#startupStage").textContent="GPU TERMINATED";
+      $("#step4 h1").textContent="GPU terminated.";
+      $("#workspaceText").textContent="Termination verified with RunPod. Compute stopped.";
+      $("#ready").classList.remove("show");
+      $("#sessionControls").classList.remove("show");
+      $("#launchRetry").style.display="flex";
+    }
+    return false;
+  }
+  if(status.archive_error) $("#sessionError").textContent=status.archive_error;
 
   go(4);
+  $("#step4 h1").textContent=["ending","ending_now"].includes(status.state) ? "Ending session." : status.ready ? "Workspace available." : "GPU starting.";
   $("#podDot").classList.add("live");
   const gpu=status.selected_gpu || "GPU";
   const cloud=status.selected_cloud ? " · "+(status.selected_cloud==="COMMUNITY"?"Community":"Secure") : "";
@@ -524,7 +584,8 @@ function renderActiveSession(status){
   }
   renderStartupStatus(status);
 
-  if(status.ready){
+  $("#openWorkspace").disabled=!status.ready || ["ending","ending_now"].includes(status.state);
+  if(status.ready && !["ending","ending_now"].includes(status.state)){
     $("#workspaceDot").classList.add("live");
     $("#workspaceText").textContent="Workspace is responding";
     $("#ready").classList.add("show");
@@ -537,17 +598,16 @@ function renderActiveSession(status){
 }
 
 async function startSession(){
-  if(!selectedOffer) return;
+  if(!selectedOffer || $("#startSession").disabled) return;
+  $("#startSession").disabled=true;
   $("#sessionError").textContent="";
   go(4);
 
-  workspaceTab=window.open("about:blank","ugcFactoryWorkspace");
-  if(workspaceTab){
-    workspaceTab.document.write("<title>UGC Factory</title><body style='font-family:-apple-system;background:#f7f7f5;color:#111;display:grid;place-items:center;height:100vh;margin:0'><div style='text-align:center'><b>Starting UGC Factory</b><div style='color:#777;font-size:13px;margin-top:8px'>Waiting for the render workspace…</div></div></body>");
-  }
+  workspaceTab=null;
 
   try{
     const result=await post("/api/launch",{
+      model:$("#sessionModel").value,
       gpu:selectedOffer.gpu_id,
       cloud:selectedOffer.cloud,
       vram:selectedOffer.vram_gb,
@@ -571,15 +631,17 @@ async function startSession(){
     if(workspaceTab) workspaceTab.close();
     $("#launchError").textContent=error.message;
     $("#launchRetry").style.display="flex";
+    $("#startSession").disabled=false;
   }
 }
 
 async function pollWorkspace(){
   for(let i=0;i<240;i++){
     const status=await get("/api/status");
-    if(status.error) throw new Error(status.error);
+    if(status.error && !status.active && !status.pending_creation) throw new Error(status.error);
+    if(status.pending_creation){renderActiveSession(status);await new Promise(resolve=>setTimeout(resolve,3000));continue;}
     if(!status.active){
-      throw new Error("The Runpod Pod is no longer active.");
+      renderActiveSession(status); return;
     }
     currentSessionToken=status.session_token||currentSessionToken||"";
     currentWorkspaceUrl=status.workspace_url||currentWorkspaceUrl;
@@ -587,20 +649,25 @@ async function pollWorkspace(){
       const sep=currentWorkspaceUrl.includes("?")?"&":"?";
       currentWorkspaceUrl=currentWorkspaceUrl+sep+"session_token="+encodeURIComponent(currentSessionToken);
     }
-    renderStartupStatus(status);
+    renderActiveSession(status);
     if(status.ready){
+      $("#openWorkspace").disabled=false;
       $("#workspaceDot").classList.add("live");
       $("#workspaceText").textContent="Workspace is responding";
       $("#ready").classList.add("show");
       $("#sessionControls").classList.add("show");
-      if(workspaceTab) workspaceTab.location=currentWorkspaceUrl;
-      return;
+
     }
     await new Promise(resolve=>setTimeout(resolve,3000));
   }
   throw new Error("The Pod was created, but the workspace did not become ready in time.");
 }
 
+$("#sessionModel").onchange=()=>{
+  const gated=$("#sessionModel").value==="h3-fl2va";
+  $("#startSession").disabled=gated;
+  $("#modelGate").textContent=gated?"H3 execution requires deployment authorization. No GPU will be allocated.":"";
+};
 $("#saveCredentials").onclick=saveCredentials;
 $("#refreshGpu").onclick=loadGpus;
 $("#minVram").onchange=filterOffers;
@@ -608,7 +675,7 @@ $("#maxPrice").oninput=filterOffers;
 $("#sortGpu").onchange=filterOffers;
 $("#continueGpu").onclick=()=>{updateSessionSummary();go(3)};
 $("#startSession").onclick=startSession;
-$("#findAnother").onclick=async()=>{$("#launchError").textContent="";$("#launchRetry").style.display="none";selectedOffer=null;$("#gpuSelection").style.display="none";go(2);await loadGpus()};
+$("#findAnother").onclick=async()=>{$("#launchError").textContent="";$("#launchRetry").style.display="none";selectedOffer=null;$("#startSession").disabled=false;$("#sessionModel").onchange();$("#gpuSelection").style.display="none";go(2);await loadGpus()};
 
 $("#openWorkspace").onclick=()=>{
   if(currentWorkspaceUrl) window.open(currentWorkspaceUrl,"_blank");
@@ -695,6 +762,14 @@ async function bootstrap(){
   $("#image").value=bootstrapData.image||"ghcr.io/voekee/ugc-factory:latest";
   $("#disk").value=bootstrapData.disk||180;
 
+  if(bootstrapData.lifecycle_test){
+    selectedHours=0.25;
+    document.querySelectorAll(".hour").forEach((b,i)=>{b.hidden=i>0;if(i===0){b.dataset.hours="0.25";b.textContent="15 minutes";}});
+    $("#sessionModel").options[0].textContent="Infrastructure test · synthetic video, no AI model";
+    $("#modelGate").textContent="Development test: real paid GPU, synthetic renderer, 75-second idle shutdown, 15-minute hard limit.";
+    $("#minVram").insertAdjacentHTML("afterbegin",'<option value="8">8 GB+ · infrastructure test</option>');
+    $("#minVram").value="8";
+  }
   if(bootstrapData.runpod_saved){
     $("#runpodSavedBadge").textContent=bootstrapData.runpod_masked+" saved";
     $("#savedRunpod").textContent=bootstrapData.runpod_masked;
@@ -706,8 +781,9 @@ async function bootstrap(){
 
   try{
     const status=await get("/api/status");
+    if(status.error && !status.active) $("#globalComputeState").textContent=status.error;
     if(renderActiveSession(status)){
-      if(!status.ready) pollWorkspace().catch(error=>{$("#launchError").textContent=error.message});
+      pollWorkspace().catch(error=>{$("#launchError").textContent=error.message});
       return;
     }
   }catch{}

@@ -70,7 +70,7 @@ if ! venv_is_compatible; then
   "$UV_BIN" python install 3.12 >/dev/null
   "$UV_BIN" venv --python 3.12 --seed "$VENV" >/dev/null
   "$VENV/bin/pip" install --quiet -r "$ROOT/launcher/requirements.txt"
-elif ! "$VENV/bin/python" -c "import runpod" >/dev/null 2>&1; then
+elif ! "$VENV/bin/python" -c "import runpod, pydantic_settings" >/dev/null 2>&1; then
   echo "Finishing the local launcher setup…"
   "$VENV/bin/pip" install --quiet -r "$ROOT/launcher/requirements.txt"
 fi

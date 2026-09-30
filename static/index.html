@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#ffffff" />
   <title>UGC Factory</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=h3-safety-2" />
 </head>
 <body>
   <div id="auth" class="auth-screen">
@@ -38,9 +38,9 @@
         </button>
       </div>
       <div class="sidebar-bottom">
-        <button id="terminate" class="side-item danger-side" title="Terminate Pod">
+        <button id="terminate" class="side-item danger-side" title="End session after queued jobs finish">
           <svg viewBox="0 0 24 24"><path d="M12 3v8M6.3 6.3a8 8 0 1 0 11.4 0"/></svg>
-          <span>End</span>
+          <span>End session</span>
         </button>
       </div>
     </aside>
@@ -72,27 +72,29 @@
           <div class="composer-modebar"><span class="mode-label">Video</span><span class="format-label">9:16 · 720p</span></div>
           <div class="frames-row">
             <div class="frame-drop" id="startDrop" data-frame="start">
-              <input id="startFrame" class="frame-input" type="file" accept="image/png,image/jpeg,image/webp" />
+              <input id="startFrame" class="frame-input" type="file" accept="image/*" />
               <img id="startPreview" class="frame-preview hidden" alt="" />
               <div class="frame-content">
                 <span class="frame-plus">＋</span>
                 <strong>Start frame</strong>
                 <small id="startFrameMeta">PNG, JPG or WEBP · required</small>
                 <button id="startChoose" type="button" class="frame-choose">Choose image</button>
+                <button id="startRemove" type="button" class="frame-choose">Remove</button>
               </div>
             </div>
             <div class="frame-drop" id="endFrameWrap" data-frame="end">
-              <input id="endFrame" class="frame-input" type="file" accept="image/png,image/jpeg,image/webp" />
+              <input id="endFrame" class="frame-input" type="file" accept="image/*" />
               <img id="endPreview" class="frame-preview hidden" alt="" />
               <div class="frame-content">
                 <span class="frame-plus">＋</span>
                 <strong>End frame</strong>
                 <small id="endFrameMeta">PNG, JPG or WEBP · optional</small>
                 <button id="endChoose" type="button" class="frame-choose">Choose image</button>
+                <button id="endRemove" type="button" class="frame-choose">Remove</button>
               </div>
             </div>
           </div>
-          <div class="prompt-shell"><textarea id="prompt" rows="3" placeholder="Describe the motion, action and camera behavior…"></textarea></div>
+          <div class="prompt-shell"><textarea id="prompt" aria-label="Generation prompt" rows="3" placeholder="Describe the motion, action and camera behavior…"></textarea></div>
           <div class="composer-footer">
             <div class="composer-left">
               <div class="control-group">
@@ -107,19 +109,19 @@
             <div class="composer-right">
               <div class="variations-control">
                 <button id="variationMinus" type="button">−</button>
-                <input id="variations" type="number" min="1" max="100" value="1" />
+                <input id="variations" aria-label="Number of variations" type="number" min="1" max="100" value="1" />
                 <button id="variationPlus" type="button">＋</button>
               </div>
               <button id="generate" class="generate-button">Generate</button>
             </div>
           </div>
-          <div class="composer-meta"><span id="rendererNote">Local renderer</span><span id="formError" class="composer-error"></span></div>
+          <div class="composer-meta"><span id="rendererNote">Local renderer</span><span id="formError" class="composer-error" role="alert"></span></div>
         </div>
       </section>
 
       <footer class="studio-footer">
-        <span>Ephemeral session. Download what you want to keep.</span>
-        <button id="footerTerminate" class="text-danger">Terminate Pod</button>
+        <span>Keep the local launcher open for automatic backups. Download outputs before ending an unmanaged session.</span>
+        <button id="footerTerminate" class="text-danger">End now</button>
       </footer>
     </main>
 
@@ -133,6 +135,6 @@
     </aside>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=h3-safety-2"></script>
 </body>
 </html>

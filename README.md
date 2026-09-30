@@ -1,3 +1,5 @@
+> **Development branch status (2026-09-30):** Session safety fixes and a disabled H3 adapter are in progress. H3 has not been GPU-tested. See [implementation evidence and remaining limits](docs/H3-IMPLEMENTATION.md). The legacy ephemeral-storage description below refers to the existing deployed image; new launcher backups require the matching updated worker.
+
 <p align="center">
   <img src="assets/ugc-factory-hero.svg" alt="UGC Factory" width="100%">
 </p>

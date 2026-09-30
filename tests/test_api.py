@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+import io
+from PIL import Image
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -25,6 +27,8 @@ def test_mock_end_to_end_download_guard(tmp_path: Path) -> None:
     settings.ugc_renderer_mode = "mock"
     settings.max_session_hours = 999.0
 
+    image = io.BytesIO()
+    Image.new("RGB", (96,128), "red").save(image, "PNG")
     try:
         with TestClient(app) as client:
             for owner in ("Mehmet", "Joshua"):
@@ -38,7 +42,7 @@ def test_mock_end_to_end_download_guard(tmp_path: Path) -> None:
                         "duration": "4",
                         "variations": "1",
                     },
-                    files={"start_frame": ("start.png", b"mock-image", "image/png")},
+                    files={"start_frame": ("start.png", image.getvalue(), "image/png")},
                 )
                 assert response.status_code == 200, response.text
 

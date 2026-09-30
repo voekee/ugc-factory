@@ -10,11 +10,9 @@ class MockRenderer(Renderer):
 
     def render(self, req: RenderRequest) -> None:
         req.output_path.parent.mkdir(parents=True, exist_ok=True)
-        label = req.prompt.replace("'", "")[:48]
         subprocess.run([
             "ffmpeg", "-y",
-            "-f", "lavfi", "-i", f"color=c=0x111216:s=720x1280:d={req.duration}",
-            "-vf", f"drawtext=text='{label}':fontcolor=white:fontsize=34:x=(w-text_w)/2:y=(h-text_h)/2",
+            "-f", "lavfi", "-i", f"testsrc2=s=720x1280:d={req.duration}",
             "-r", "24", "-pix_fmt", "yuv420p",
             "-metadata", "comment=mock-metadata-to-remove",
             str(req.output_path),

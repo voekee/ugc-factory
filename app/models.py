@@ -27,12 +27,19 @@ class RendererCapabilities:
     resolution: str = "720p"
     aspect_ratio: str = "9:16"
     notes: str = ""
+    requires_start_frame: bool = True
 
     def dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 RENDERERS: dict[str, RendererCapabilities] = {
+    "h3-fl2va": RendererCapabilities(
+        id="h3-fl2va", name="MiniMax H3", description="Self-hosted FL2VA with native first and last keyframes and audio.",
+        recommended_for="Start + End Frame", supports_start_frame=True, supports_end_frame=True,
+        supports_audio=True, supported_durations=list(range(4,16)), resolution="768p",
+        requires_start_frame=False, notes="Experimental local SGLang adapter. License authorization and GPU validation required.",
+    ),
     "ltx25": RendererCapabilities(
         id="ltx25",
         name="LTX-2.5",

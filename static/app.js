@@ -18,6 +18,9 @@ let duration = 4;
 let selected = new Set();
 let startFile = null;
 let endFile = null;
+let sessionEnding = false;
+let refreshing = false;
+let lastJobsSnapshot = "";
 
 async function api(path, opts = {}) {
   opts.headers = Object.assign({}, opts.headers || {}, {'X-Access-Token': token});
@@ -104,15 +107,16 @@ function setFrame(kind, file) {
   else endFile = file || null;
 
   if (!file) {
-    preview.src = '';
+    preview.onerror = null; preview.onload = null; preview.removeAttribute('src');
     preview.classList.add('hidden');
     drop.classList.remove('has-preview');
-    meta.textContent = isStart ? 'PNG, JPG or WEBP · required' : 'PNG, JPG or WEBP · optional';
+    meta.textContent = isStart && renderer?.requires_start_frame ? 'PNG, JPG or WEBP · required' : 'PNG, JPG or WEBP · optional';
     return;
   }
 
   const url = URL.createObjectURL(file);
-  preview.onload = () => URL.revokeObjectURL(url);
+  preview.onerror = () => { URL.revokeObjectURL(url); setFrame(kind, null); $('#formError').textContent = 'This image could not be decoded.'; };
+  preview.onload = () => { meta.textContent = file.name + ' · ' + preview.naturalWidth + '×' + preview.naturalHeight; URL.revokeObjectURL(url); };
   preview.src = url;
   preview.classList.remove('hidden');
   drop.classList.add('has-preview');
@@ -126,6 +130,12 @@ function bindFrame(kind) {
   const choose = $(isStart ? '#startChoose' : '#endChoose');
   const drop = $(isStart ? '#startDrop' : '#endFrameWrap');
 
+  $(isStart ? '#startRemove' : '#endRemove').onclick = () => { setFrame(kind, null); input.value = ''; };
+  drop.tabIndex = 0;
+  drop.addEventListener('paste', event => {
+    const file = Array.from(event.clipboardData?.files || []).find(item => item.type.startsWith('image/'));
+    if (file && !drop.classList.contains('disabled')) { event.preventDefault(); setFrame(kind, file); }
+  });
   choose.onclick = event => {
     event.preventDefault();
     event.stopPropagation();
@@ -156,7 +166,7 @@ function bindFrame(kind) {
 async function boot() {
   const response = await api('/api/renderers');
   renderers = response.renderers || [];
-  renderer = renderers[0] || null;
+  renderer = renderers.find(item => item.available !== false) || renderers[0] || null;
 
   const savedOwner = localStorage.getItem('ugc_owner');
   if (savedOwner) $('#owner').value = savedOwner;
@@ -182,7 +192,7 @@ async function boot() {
 }
 
 function setVariations(value) {
-  const next = Math.max(1, Math.min(100, Number(value || 1)));
+  const next = Math.max(1, Math.min(100, Math.trunc(Number(value || 1))));
   $('#variations').value = String(next);
   updateGenerateLabel();
 }
@@ -201,8 +211,8 @@ function drawRenderers() {
   $('#renderers').innerHTML = renderers.map(item => {
     const active = renderer && renderer.id === item.id ? ' active' : '';
     return '<button type="button" class="renderer-card' + active + '" data-id="' + esc(item.id) + '">' +
-      '<strong>' + esc(item.name) + '</strong>' +
-      '<small>' + esc(item.recommended_for) + '</small>' +
+      '<strong>' + esc(item.name) + (item.available === false ? ' · unavailable' : '') + '</strong>' +
+      '<small>' + esc(item.available === false ? 'Unavailable · authorization required' : item.recommended_for) + '</small>' +
       '</button>';
   }).join('');
 
@@ -221,7 +231,10 @@ function applyRenderer() {
     return;
   }
 
-  $('#rendererNote').textContent = renderer.notes;
+  $('#rendererNote').textContent = renderer.unavailable_reason || renderer.notes;
+  $('#generate').disabled = renderer.available === false || sessionEnding;
+  $('.format-label').textContent = renderer.id === 'h3-fl2va' ? 'Source aspect · 768p' : '9:16 · 720p';
+  if (!startFile) $('#startFrameMeta').textContent = renderer.requires_start_frame ? 'PNG, JPG or WEBP · required' : 'PNG, JPG or WEBP · optional';
 
   const endWrap = $('#endFrameWrap');
   const endChoose = $('#endChoose');
@@ -277,7 +290,7 @@ $('#generate').onclick = async () => {
     return;
   }
 
-  if (!startFile && renderer.supports_start_frame) {
+  if (!startFile && renderer.requires_start_frame) {
     $('#formError').textContent = 'Add a start frame first.';
     return;
   }
@@ -321,7 +334,7 @@ $('#generate').onclick = async () => {
   } catch (error) {
     $('#formError').textContent = error.message;
   } finally {
-    button.disabled = false;
+    button.disabled = sessionEnding || renderer.available === false;
     updateGenerateLabel();
   }
 };
@@ -337,22 +350,35 @@ function closeQueue() {
 }
 
 async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
   try {
     const values = await Promise.all([api('/api/jobs'), api('/api/session')]);
     const jobsResponse = values[0];
     const sessionResponse = values[1];
 
-    drawJobs(jobsResponse.jobs);
+    const snapshot = JSON.stringify(jobsResponse.jobs);
+    if (snapshot !== lastJobsSnapshot) {
+      drawJobs(jobsResponse.jobs);
+      lastJobsSnapshot = snapshot;
+    }
+    sessionEnding = ['ending', 'terminated'].includes(sessionResponse.state);
+    $('#generate').disabled = sessionEnding || renderer?.available === false;
 
     $('#sessionText').textContent =
-      Math.floor(sessionResponse.elapsed_seconds / 60) + 'm · ~$' +
-      Number(sessionResponse.estimated_cost_usd).toFixed(2) + ' · ' +
+      (sessionResponse.mode === 'mock' ? 'SYNTHETIC TEST · ' : '') + (!sessionResponse.gpu_type || sessionResponse.gpu_type === 'Unavailable' ? '' : sessionResponse.gpu_type + ' · ') + (!(sessionResponse.hourly_rate_usd > 0) ? '' : '$' + Number(sessionResponse.hourly_rate_usd).toFixed(2) + '/h · ') + sessionResponse.state + ' · ' + Math.floor(sessionResponse.elapsed_seconds / 60) + 'm · ' +
+      (sessionResponse.estimated_cost_usd == null ? 'Cost unavailable' : '~$' + Number(sessionResponse.estimated_cost_usd).toFixed(3)) + ' · ' +
       sessionResponse.active_jobs + ' active';
   } catch (error) {
     if (error.status === 401) {
       localStorage.removeItem('ugc_token');
       location.reload();
+    } else {
+      $('#generate').disabled = true;
+      $('#sessionText').textContent = 'Connection lost · check GPU state in the local launcher';
     }
+  } finally {
+    refreshing = false;
   }
 }
 
@@ -374,13 +400,16 @@ function drawJobs(jobs) {
             '<strong>' + esc(job.owner) + ' · ' + esc(job.renderer) + '</strong>' +
             '<div class="queue-phase">' + esc(job.phase || job.status) + '</div>' +
             '<small>' + esc(job.phase_detail || (job.prompt || '').slice(0, 90)) + '</small>' +
-            log +
+            log + (job.status === 'queued' ? '<button class="cancel-job button button-light" data-id="' + job.id + '">Cancel</button>' : '') +
           '</div>' +
           '<div class="status ' + esc(job.status) + '">' + esc(job.status) + '</div>' +
         '</div>';
       }).join('')
     : '<div class="queue-empty">No active renders.</div>';
 
+  document.querySelectorAll('.cancel-job').forEach(button => {
+    button.onclick = async () => { button.disabled=true; try { await api('/api/jobs/'+button.dataset.id+'/cancel',{method:'POST'}); await refresh(); } catch(error) { alert(error.message); } };
+  });
   if (!results.length) {
     $('#gallery').innerHTML =
       '<div class="empty-gallery">' +
@@ -397,12 +426,12 @@ function drawJobs(jobs) {
     if (!ready) {
       return '<article class="media-card">' +
         '<div class="media-thumb media-failed"><div><strong>Generation failed</strong>' +
-        '<div style="margin-top:6px">Open the error below for the exact renderer output.</div></div></div>' +
+        '<div style="margin-top:6px">No video was produced. Retry when the renderer is available; details are below.</div></div></div>' +
         '<div class="media-card-footer">' +
           '<div class="media-card-row"><strong>' + esc(job.owner) + '</strong><span>' +
           esc(job.renderer) + ' · ' + job.duration + 's</span></div>' +
           '<details class="error-details"><summary>View renderer error</summary><pre>' +
-          esc(job.error || 'Unknown error') + '</pre></details>' +
+          esc(job.error || 'Unknown error') + '</pre></details><button type="button" class="retry-job button button-light" data-id="' + job.id + '">Retry</button>' +
         '</div></article>';
     }
 
@@ -417,6 +446,14 @@ function drawJobs(jobs) {
         '<a href="/api/jobs/' + job.id + '/download?token=' + qsToken() + '">Download</a></div>' +
       '</div></article>';
   }).join('');
+
+  document.querySelectorAll('.retry-job').forEach(button => {
+    button.onclick = async () => {
+      button.disabled = true;
+      try { await api('/api/jobs/' + button.dataset.id + '/retry', {method:'POST'}); await refresh(); }
+      catch (error) { $('#formError').textContent = error.message; button.disabled = false; }
+    };
+  });
 
   document.querySelectorAll('.check').forEach(checkbox => {
     checkbox.onchange = () => {
@@ -461,7 +498,10 @@ async function terminatePod() {
   }
 }
 
-$('#terminate').onclick = terminatePod;
+$('#terminate').onclick = async () => {
+  try { await api('/api/session/end', {method:'POST'}); await refresh(); }
+  catch (error) { $('#formError').textContent = error.message; }
+};
 $('#footerTerminate').onclick = terminatePod;
 
 if (token) {

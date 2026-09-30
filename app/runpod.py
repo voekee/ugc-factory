@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime, timezone
 
 from app.config import settings
@@ -15,8 +16,9 @@ def session_status() -> dict:
         "session_name": settings.runpod_session_name,
         "started_at": start.isoformat(),
         "elapsed_seconds": round(elapsed_h * 3600),
-        "hourly_rate_usd": rate,
-        "estimated_cost_usd": round(elapsed_h * rate, 4),
+        "hourly_rate_usd": rate if rate > 0 else None,
+        "gpu_type": os.environ.get("UGC_GPU_TYPE", "Unavailable"),
+        "estimated_cost_usd": round(elapsed_h * rate, 4) if rate > 0 else None,
         "ephemeral": True,
     }
 
@@ -41,4 +43,7 @@ async def terminate_pod_delayed(delay_seconds: int = 2) -> None:
         return
     import runpod
     runpod.api_key = settings.runpod_api_key
-    runpod.terminate_pod(pod_id)
+    from app import db
+    db.set_kv("termination_requested_at", datetime.now(timezone.utc).isoformat())
+    # The watchdog and external guardian retry if this first request fails.
+    await asyncio.to_thread(runpod.terminate_pod, pod_id)

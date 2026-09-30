@@ -22,6 +22,8 @@ import runpod
 from runpod.api.graphql import run_graphql_query
 
 from runpod_launcher import launch_pod
+from lifecycle_test import enabled as lifecycle_test_enabled
+from guardian import Guardian, archive_outputs, terminate_verified, worker_json
 
 UI_PATH = Path(__file__).with_name("onboarding.html")
 CONFIG_DIR = Path.home() / ".ugc-factory"
@@ -32,6 +34,8 @@ DEFAULTS = {
     "hours": 1.0,
     "disk": 180,
 }
+
+SESSION_LOCK = threading.RLock()
 
 LOCAL_TOKEN = secrets.token_urlsafe(24)
 STATE: dict[str, Any] = {
@@ -85,7 +89,11 @@ def _write_config(config: dict[str, Any]) -> None:
         pass
 
     tmp = CONFIG_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2) + "\n")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as stream:
+        stream.write(json.dumps(payload, indent=2) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
     try:
         os.chmod(tmp, stat.S_IRUSR | stat.S_IWUSR)
     except OSError:
@@ -109,6 +117,7 @@ def _public_config() -> dict[str, Any]:
     saved = _read_config()
     return {
         "config_path": str(CONFIG_PATH),
+        "lifecycle_test": lifecycle_test_enabled(),
         "runpod_saved": bool(saved.get("runpod_api_key")),
         "runpod_masked": _mask(str(saved.get("runpod_api_key", ""))),
         "hf_saved": bool(saved.get("hf_token")),
@@ -126,7 +135,9 @@ def _public_config() -> dict[str, Any]:
 def _validate_runpod_key(api_key: str) -> None:
     if not api_key:
         raise ValueError("Runpod API key is required.")
-    run_graphql_query("query { myself { id } }", api_key=api_key)
+    response = run_graphql_query("query { myself { id } }", api_key=api_key)
+    if not response.get("data", {}).get("myself", {}).get("id"):
+        raise ValueError("RunPod did not confirm this API key")
 
 
 def _validate_hf_token(token: str) -> None:
@@ -242,7 +253,7 @@ def _discover_gpu_offers(api_key: str) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             continue
 
-        if vram < 24:
+        if vram < (8 if lifecycle_test_enabled() else 24):
             continue
 
         display_name = str(gpu.get("displayName") or gpu_id.replace("NVIDIA ", ""))
@@ -255,7 +266,7 @@ def _discover_gpu_offers(api_key: str) -> list[dict[str, Any]]:
             or "A100" in gpu_id
             or "RTX A6000" in gpu_id
         )
-        if incompatible_ltx:
+        if incompatible_ltx and not lifecycle_test_enabled():
             continue
 
         for field, cloud in (("community", "COMMUNITY"), ("secure", "SECURE")):
@@ -413,7 +424,7 @@ def _probe_workspace(url: str) -> bool:
         headers={
             "User-Agent": (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 Chrome/136 Safari/537.36"
+                "AppleWebKit/605.1.15 Version/26.0 Safari/605.1.15"
             ),
             "Accept": "application/json,text/plain,*/*",
             "Cache-Control": "no-cache",
@@ -466,6 +477,10 @@ def _recover_active_session() -> dict[str, Any] | None:
 
     active = next((pod for pod in pods if str(pod.get("id") or "") == pod_id), None)
     if not active:
+        saved.setdefault("session_history", []).append({**session, "state": "terminated", "termination_verified": True,
+            "terminated_at": datetime.now(timezone.utc).isoformat()})
+        saved.pop("active_session", None)
+        _write_config(saved)
         _clear_active_session()
         return None
 
@@ -481,17 +496,9 @@ def _recover_active_session() -> dict[str, Any] | None:
 
 
 def _session_status_payload() -> dict[str, Any]:
-    if STATE.get("pod_id"):
-        session = {
-            "pod_id": STATE["pod_id"],
-            "dashboard_url": STATE["dashboard_url"],
-            "workspace_url": STATE["workspace_url"],
-            "session_token": STATE.get("session_token", ""),
-            "selected_gpu": STATE["selected_gpu"],
-            "selected_cloud": STATE["selected_cloud"],
-        }
-    else:
-        session = _recover_active_session() or {}
+    session = _recover_active_session() or {}
+    if not session and not STATE.get("launching"):
+        STATE.update({"pod_id": "", "workspace_url": "", "dashboard_url": "", "session_token": ""})
 
     if session:
         STATE.update({
@@ -507,25 +514,7 @@ def _session_status_payload() -> dict[str, Any]:
     health_ready = _probe_workspace(dashboard_url) if dashboard_url else False
 
     progress = _progress_snapshot(session, health_ready) if session.get("pod_id") else {}
-    runtime_ready = bool(
-        progress.get("runtime_reported")
-        and int(progress.get("container_uptime_seconds") or 0) >= 8
-    )
-    ready = bool(health_ready or runtime_ready)
-
-    if ready and not health_ready:
-        progress = {
-            **progress,
-            "stage": "container_ready",
-            "stage_label": "Container ready",
-            "stage_detail": (
-                "Runpod reports a healthy running container. "
-                "The local Python health probe could not verify the proxy directly, "
-                "so the workspace can be opened now."
-            ),
-            "progress_percent": 96,
-            "eta_text": "Open workspace",
-        }
+    ready = health_ready
 
     workspace_url = str(session.get("workspace_url") or "")
     session_token = str(session.get("session_token") or STATE.get("session_token") or "")
@@ -543,6 +532,9 @@ def _session_status_payload() -> dict[str, Any]:
     return {
         **STATE,
         **session,
+        "orphan_pods": _read_config().get("orphan_pods", []),
+        "pending_creation": bool(_read_config().get("pending_creation")),
+        "last_session": next(iter(reversed(_read_config().get("session_history", []))), None),
         **progress,
         "workspace_url": workspace_url,
         "session_token": session_token,
@@ -572,19 +564,20 @@ def _terminate_active_session() -> dict[str, Any]:
         raise ValueError("Runpod API key is missing; cannot terminate the active Pod.")
 
     pod_id = str(session["pod_id"])
-    runpod.api_key = api_key
-
+    session["state"] = "ending_now"
+    saved["active_session"] = session
+    _write_config(saved)
     try:
-        runpod.terminate_pod(pod_id)
-    except Exception as exc:
-        # If the Pod is already gone, clear local state. Otherwise surface the
-        # error so users never believe spend stopped when it might not have.
-        message = str(exc).lower()
-        if "not found" not in message and "does not exist" not in message:
-            raise
-
+        archive_outputs(session, CONFIG_DIR / "sessions")
+    except Exception:
+        session["archive_error"] = "Could not archive all outputs before immediate termination"
+    terminate_verified(api_key, pod_id)
+    saved.setdefault("session_history", []).append({**session, "state": "terminated", "termination_verified": True,
+        "terminated_at": datetime.now(timezone.utc).isoformat()})
+    saved.pop("active_session", None)
+    _write_config(saved)
     _clear_active_session()
-    return {"ok": True, "pod_id": pod_id}
+    return {"ok": True, "pod_id": pod_id, "termination_verified": True, "archive_error": session.get("archive_error")}
 
 
 
@@ -664,37 +657,34 @@ def _progress_snapshot(session: dict[str, Any], ready: bool) -> dict[str, Any]:
 
     elapsed = int(elapsed or 0)
 
+    if session.get("state") in {"ending", "ending_now"}:
+        return {"stage_label": "ENDING SESSION", "stage_detail": "Saving outputs and verifying GPU termination. Compute may still be billed.", "elapsed_seconds": elapsed}
     if ready:
         stage = "ready"
         label = "Workspace ready"
         detail = "The web application is responding."
-        progress = 100
         eta = "Ready now"
     elif telemetry.get("runtime_reported"):
         stage = "application_start"
         label = "Container running"
         detail = "Runpod reports container telemetry. Waiting for UGC Factory health check."
-        progress = 82
         eta = "Usually less than 1–2 minutes"
     else:
         stage = "platform_initializing"
-        label = "Initializing container"
+        label = "GPU STARTING"
         detail = "No container telemetry yet. Runpod is typically pulling the image, creating the container or booting it."
         if elapsed < 120:
-            progress = 35
             eta = "Usually a few minutes"
         elif elapsed < 480:
-            progress = 50
             eta = "Still within a normal large-image startup window"
         else:
-            progress = 55
             eta = "Taking longer than expected · check Pod/system logs"
 
     return {
         "stage": stage,
         "stage_label": label,
         "stage_detail": detail,
-        "progress_percent": progress,
+        "progress_percent": None,
         "eta_text": eta,
         "elapsed_seconds": elapsed,
         **telemetry,
@@ -719,6 +709,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(raw)
 
@@ -729,6 +720,10 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(size).decode())
 
     def do_GET(self) -> None:
+        with SESSION_LOCK:
+            self._get()
+
+    def _get(self) -> None:
         parsed = urlparse(self.path)
 
         if parsed.path == "/":
@@ -747,6 +742,33 @@ class Handler(BaseHTTPRequestHandler):
 
         if not self._authorized():
             self._json({"error": "Unauthorized local launcher request."}, 403)
+            return
+
+        if parsed.path == "/api/library":
+            files = []
+            for path in (CONFIG_DIR / "sessions").glob("*/*.mp4"):
+                files.append({"pod_id": path.parent.name, "job_id": path.stem, "bytes": path.stat().st_size})
+            self._json({"videos": files})
+            return
+
+        if parsed.path.startswith("/api/library/"):
+            import re
+            import shutil
+            match = re.fullmatch(r"/api/library/([a-zA-Z0-9]+)/([a-f0-9]{32})", parsed.path)
+            if not match:
+                self.send_error(404)
+                return
+            path = CONFIG_DIR / "sessions" / match[1] / (match[2] + ".mp4")
+            if not path.is_file():
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Length", str(path.stat().st_size))
+            self.send_header("Content-Disposition", f'attachment; filename="{match[2]}.mp4"')
+            self.end_headers()
+            with path.open("rb") as stream:
+                shutil.copyfileobj(stream, self.wfile)
             return
 
         if parsed.path == "/api/bootstrap":
@@ -772,6 +794,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self) -> None:
+        with SESSION_LOCK:
+            self._post()
+
+    def _post(self) -> None:
         parsed = urlparse(self.path)
 
         if not self._authorized():
@@ -800,10 +826,51 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/forget":
             try:
+                if _read_config().get("active_session") or STATE.get("launching"):
+                    raise ValueError("End the tracked session before forgetting its credentials")
                 CONFIG_PATH.unlink(missing_ok=True)
                 self._json({"ok": True})
-            except OSError as exc:
-                self._json({"error": str(exc)}, 500)
+            except (OSError, ValueError) as exc:
+                self._json({"error": str(exc)}, 409)
+            return
+
+        if parsed.path == "/api/terminate-orphan":
+            try:
+                payload = self._read_json()
+                saved = _read_config()
+                key = saved.get("runpod_api_key", "")
+                pod_id = str(payload.get("pod_id", ""))
+                pods = runpod.get_pods(api_key=key)
+                owned = next((p for p in pods if str(p.get("id")) == pod_id and str(p.get("name", "")).startswith("ugc-factory-")), None)
+                if not owned:
+                    raise ValueError("This is not a known UGC Factory Pod")
+                if saved.get("active_session", {}).get("pod_id") == pod_id:
+                    raise ValueError("Use End session for the active workspace")
+                terminate_verified(key, pod_id)
+                saved.setdefault("session_history", []).append({"pod_id": pod_id, "state": "terminated", "termination_verified": True})
+                saved["orphan_pods"] = [p for p in saved.get("orphan_pods", []) if p["pod_id"] != pod_id]
+                _write_config(saved)
+                self._json({"ok": True, "termination_verified": True})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 400)
+            return
+
+        if parsed.path == "/api/end-active":
+            try:
+                saved = _read_config()
+                active = saved.get("active_session")
+                if not active:
+                    self._json({"ok": True, "state": "terminated", "termination_verified": True})
+                    return
+                if not _probe_workspace(active.get("dashboard_url", "")):
+                    self._json(_terminate_active_session())
+                    return
+                active["state"] = "ending"
+                _write_config(saved)
+                worker_json(active, "/api/session/end", "POST")
+                self._json({"ok": True, "state": "ending"})
+            except Exception as exc:
+                self._json({"error": str(exc)}, 400)
             return
 
         if parsed.path == "/api/terminate-active":
@@ -817,13 +884,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
 
-        if STATE["launching"]:
-            self._json({"error": "A Pod is already being created."}, 409)
+        if STATE["launching"] or _read_config().get("pending_creation") or _recover_active_session():
+            self._json({"error": "A session already exists; end it before creating another Pod."}, 409)
             return
 
         try:
             payload = self._read_json()
             saved = _read_config()
+            model = str(payload.get("model", "legacy"))
+            if model == "h3-fl2va":
+                from app.h3 import require_h3
+                require_h3()
+            elif model != "legacy":
+                raise ValueError("Choose a supported model before starting a session")
 
             runpod_key = str(saved.get("runpod_api_key") or "").strip()
             hf_token = str(saved.get("hf_token") or "").strip()
@@ -848,11 +921,18 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Session length must be between 0.25 and 24 hours.")
             if not 100 <= disk <= 1000:
                 raise ValueError("Ephemeral disk must be between 100 and 1000 GB.")
+            offers = _discover_gpu_offers(runpod_key)
+            offer = next((o for o in offers if o["gpu_id"] == gpu and o["cloud"] == cloud), None)
+            if not offer:
+                raise ValueError("Selected GPU is no longer available; refresh GPU choices")
+            price = offer["price_per_hour"]
+            vram = offer["vram_gb"]
             if price < 0:
                 raise ValueError("GPU price is invalid.")
 
             image = str(payload.get("image") or saved.get("image") or DEFAULTS["image"]).strip()
-            _check_container_image_pullable(image)
+            if not lifecycle_test_enabled():
+                _check_container_image_pullable(image)
 
             STATE.update({
                 "launching": True,
@@ -864,6 +944,11 @@ class Handler(BaseHTTPRequestHandler):
                 "error": "",
             })
 
+            def journal(intent):
+                current = _read_config()
+                current["pending_creation"] = intent
+                _write_config(current)
+
             result = launch_pod(
                 api_key=runpod_key,
                 image=image,
@@ -872,7 +957,7 @@ class Handler(BaseHTTPRequestHandler):
                 hours=hours,
                 disk=disk,
                 hf_token=hf_token,
-                rate=price,
+                rate=price, model=model, on_creating=journal,
             )
 
             _write_config({
@@ -886,6 +971,10 @@ class Handler(BaseHTTPRequestHandler):
                 "selected_vram": vram,
                 "active_session": {
                     "pod_id": result["pod_id"],
+                    "session_name": result["session_name"],
+                    "session_token": result["access_token"],
+                    "state": "container_starting",
+                    "idle_timeout_seconds": 75 if lifecycle_test_enabled() else 600,
                     "started_at": datetime.now(timezone.utc).isoformat(),
                     "dashboard_url": result["dashboard_url"],
                     "workspace_url": result["workspace_url"],
@@ -893,7 +982,7 @@ class Handler(BaseHTTPRequestHandler):
                     "selected_cloud": result.get("selected_cloud", cloud),
                     "selected_price": price,
                     "selected_vram": vram,
-                    "hours": hours,
+                    "hours": min(hours, 0.25) if lifecycle_test_enabled() else hours,
                 },
             })
 
@@ -909,6 +998,11 @@ class Handler(BaseHTTPRequestHandler):
             })
             self._json({"ok": True, **STATE, "session_token": result["access_token"]})
         except Exception as exc:
+            # A GraphQL parser rejection cannot have executed the allocation mutation.
+            if str(exc).startswith("Syntax Error:"):
+                current = _read_config()
+                current.pop("pending_creation", None)
+                _write_config(current)
             STATE.update({"launching": False, "error": str(exc)})
             self._json({"error": str(exc)}, 400)
 
@@ -931,11 +1025,16 @@ def main() -> None:
     if not args.no_browser:
         threading.Timer(0.35, lambda: webbrowser.open(url)).start()
 
+    guardian = Guardian(_read_config, _write_config, CONFIG_DIR / "sessions", SESSION_LOCK)
+    guardian_thread = threading.Thread(target=guardian.run, name="ugc-guardian", daemon=True)
+    guardian_thread.start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        guardian.stop.set()
+        guardian_thread.join(timeout=3)
         server.server_close()
 
 

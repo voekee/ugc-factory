@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,14 +22,21 @@ def _db_path() -> Path:
     return settings.data_dir / "ugc_factory.sqlite3"
 
 
-def connect() -> sqlite3.Connection:
+@contextmanager
+def connect():
     con = sqlite3.connect(_db_path(), check_same_thread=False)
+    con.execute("PRAGMA busy_timeout=10000")
     con.row_factory = sqlite3.Row
-    return con
+    try:
+        with con:
+            yield con
+    finally:
+        con.close()
 
 
 def init_db() -> None:
     with _LOCK, connect() as con:
+        con.execute("PRAGMA journal_mode=WAL")
         con.executescript(
             """
             CREATE TABLE IF NOT EXISTS jobs (
@@ -55,24 +63,39 @@ def init_db() -> None:
             );
             """
         )
+        columns = {r[1] for r in con.execute("PRAGMA table_info(jobs)")}
+        for name, kind in {
+            "started_at": "TEXT", "finished_at": "TEXT", "render_seconds": "REAL",
+            "encode_seconds": "REAL", "original_prompt": "TEXT", "retry_count": "INTEGER DEFAULT 0",
+            "audio": "INTEGER DEFAULT 1", "profile": "TEXT", "engine_job_id": "TEXT",
+        }.items():
+            if name not in columns:
+                con.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
+        con.execute("CREATE INDEX IF NOT EXISTS jobs_status_created ON jobs(status, created_at)")
         con.commit()
 
 
 def create_job(job: dict[str, Any]) -> None:
+    create_jobs([job])
+
+
+def create_jobs(jobs: list[dict[str, Any]]) -> None:
     now = utcnow()
-    row = {**job, "created_at": now, "updated_at": now}
     with _LOCK, connect() as con:
-        con.execute(
-            """
-            INSERT INTO jobs
-            (id,batch_id,owner,renderer,prompt,duration,seed,start_frame,end_frame,
-             output_raw,output_clean,status,error,downloaded,created_at,updated_at)
-            VALUES
-            (:id,:batch_id,:owner,:renderer,:prompt,:duration,:seed,:start_frame,:end_frame,
-             NULL,NULL,:status,NULL,0,:created_at,:updated_at)
-            """,
-            row,
-        )
+        con.execute("BEGIN IMMEDIATE")
+        state = con.execute("SELECT value FROM kv WHERE key='session_state'").fetchone()
+        if state and json.loads(state[0]) in {"ending", "terminated"}:
+            raise ValueError("Session is ending; new jobs are disabled")
+        for job in jobs:
+            row = {**job, "created_at": now, "updated_at": now,
+                   "original_prompt": job.get("original_prompt", job["prompt"]),
+                   "audio": int(job.get("audio", True)), "profile": job.get("profile")}
+            con.execute("""INSERT INTO jobs
+                (id,batch_id,owner,renderer,prompt,duration,seed,start_frame,end_frame,
+                 status,created_at,updated_at,original_prompt,audio,profile)
+                VALUES (:id,:batch_id,:owner,:renderer,:prompt,:duration,:seed,:start_frame,:end_frame,
+                        :status,:created_at,:updated_at,:original_prompt,:audio,:profile)""", row)
+        con.execute("INSERT INTO kv(key,value) VALUES('idle_since', 'null') ON CONFLICT(key) DO UPDATE SET value='null'")
         con.commit()
 
 
@@ -93,24 +116,25 @@ def get_job(job_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def list_jobs(limit: int = 500) -> list[dict[str, Any]]:
+def list_jobs(limit: int = 500, offset: int = 0) -> list[dict[str, Any]]:
     with _LOCK, connect() as con:
         rows = con.execute(
-            "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
+            "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset)
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 def next_queued_job() -> dict[str, Any] | None:
     with _LOCK, connect() as con:
+        con.execute("BEGIN IMMEDIATE")
         row = con.execute(
             "SELECT * FROM jobs WHERE status='queued' ORDER BY created_at ASC LIMIT 1"
         ).fetchone()
         if not row:
             return None
         con.execute(
-            "UPDATE jobs SET status='rendering', updated_at=? WHERE id=? AND status='queued'",
-            (utcnow(), row["id"]),
+            "UPDATE jobs SET status='rendering', started_at=?, updated_at=? WHERE id=? AND status='queued'",
+            (utcnow(), utcnow(), row["id"]),
         )
         con.commit()
         latest = con.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone()
@@ -131,3 +155,48 @@ def get_kv(key: str, default: Any = None) -> Any:
     with _LOCK, connect() as con:
         row = con.execute("SELECT value FROM kv WHERE key=?", (key,)).fetchone()
     return json.loads(row["value"]) if row else default
+
+
+def job_counts() -> dict[str, int]:
+    with _LOCK, connect() as con:
+        return {r[0]: r[1] for r in con.execute("SELECT status, COUNT(*) FROM jobs GROUP BY status")}
+
+
+def begin_shutdown(force: bool = False) -> None:
+    with _LOCK, connect() as con:
+        con.execute("BEGIN IMMEDIATE")
+        con.execute("INSERT INTO kv(key,value) VALUES('session_state', '\"ending\"') "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+        if force:
+            con.execute("UPDATE jobs SET status='cancelled', updated_at=? WHERE status='queued'", (utcnow(),))
+        con.commit()
+
+
+def recover_interrupted_jobs() -> None:
+    # No automatic replay: an interrupted request may already have consumed GPU time.
+    with _LOCK, connect() as con:
+        con.execute("UPDATE jobs SET status='failed', error=?, finished_at=?, updated_at=? "
+                    "WHERE status IN ('rendering','cleaning')",
+                    ("Worker restarted during generation; inspect the result before explicitly retrying", utcnow(), utcnow()))
+        con.commit()
+
+
+def retry_job(job_id: str) -> bool:
+    with _LOCK, connect() as con:
+        con.execute("BEGIN IMMEDIATE")
+        state = con.execute("SELECT value FROM kv WHERE key='session_state'").fetchone()
+        if state and json.loads(state[0]) in {"ending", "terminated"}:
+            return False
+        result = con.execute("UPDATE jobs SET status='queued', error=NULL, retry_count=retry_count+1, "
+                             "started_at=NULL, finished_at=NULL, engine_job_id=NULL, updated_at=? "
+                             "WHERE id=? AND status='failed'", (utcnow(), job_id))
+        con.commit()
+        return result.rowcount == 1
+
+
+def cancel_queued_job(job_id: str) -> bool:
+    with _LOCK, connect() as con:
+        result = con.execute("UPDATE jobs SET status='cancelled', updated_at=? WHERE id=? AND status='queued'",
+                             (utcnow(), job_id))
+        con.commit()
+        return result.rowcount == 1

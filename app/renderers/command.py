@@ -4,6 +4,8 @@ from collections import deque
 import os
 import shlex
 import subprocess
+import signal
+import threading
 
 from app.config import settings
 from app.renderers.base import RenderRequest, Renderer
@@ -42,16 +44,31 @@ class CommandRenderer(Renderer):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 bufsize=1,
+                start_new_session=True,
             )
 
-            assert process.stdout is not None
-            for line in process.stdout:
-                log_file.write(line)
-                log_file.flush()
-                tail.append(line)
-                print(f"[{self.id}:{req.job_id[:8]}] {line}", end="", flush=True)
-
-            return_code = process.wait()
+            timed_out = threading.Event()
+            def expire():
+                if process.poll() is None:
+                    timed_out.set()
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+            timer = threading.Timer(settings.render_timeout_seconds, expire)
+            timer.daemon = True
+            timer.start()
+            try:
+                assert process.stdout is not None
+                for line in process.stdout:
+                    log_file.write(line)
+                    log_file.flush()
+                    tail.append(line)
+                return_code = process.wait()
+            finally:
+                timer.cancel()
+            if timed_out.is_set():
+                raise TimeoutError(f"Renderer {self.id} exceeded its {settings.render_timeout_seconds}s timeout")
 
         if return_code != 0:
             diagnostics = "".join(tail).strip()

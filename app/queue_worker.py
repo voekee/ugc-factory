@@ -21,11 +21,15 @@ def _worker() -> None:
     clean_dir.mkdir(parents=True, exist_ok=True)
 
     while not _STOP.is_set():
+        if db.get_kv("worker_blocked"):
+            _STOP.wait(1)
+            continue
         job = db.next_queued_job()
         if not job:
             time.sleep(0.6)
             continue
         try:
+            started = time.monotonic()
             raw = raw_dir / f"{job['id']}.mp4"
             clean = clean_dir / f"{job['id']}.mp4"
             renderer = get_renderer(job["renderer"])
@@ -36,17 +40,20 @@ def _worker() -> None:
                 end_frame=Path(job["end_frame"]) if job["end_frame"] else None,
                 output_path=raw,
             ))
-            db.update_job(job["id"], status="cleaning", output_raw=str(raw))
-            strip_metadata(raw, clean)
+            db.update_job(job["id"], status="cleaning", output_raw=str(raw), render_seconds=time.monotonic()-started)
+            encoding = time.monotonic()
+            strip_metadata(raw, clean, preserve_canvas=job["renderer"] == "h3-fl2va", audio=bool(job["audio"]))
             raw.unlink(missing_ok=True)
-            db.update_job(job["id"], status="complete", output_raw=None, output_clean=str(clean), error=None)
+            db.update_job(job["id"], status="complete", output_raw=None, output_clean=str(clean), error=None, finished_at=db.utcnow(), encode_seconds=time.monotonic()-encoding)
         except Exception as exc:
+            if job["renderer"] == "h3-fl2va" and any(term in str(exc).lower() for term in ("out of memory", "cuda", "connection", "timed out")):
+                db.set_kv("worker_blocked", "H3 worker needs recovery; submissions paused to prevent repeated failures")
             try:
                 raw.unlink(missing_ok=True)
                 clean.unlink(missing_ok=True)
             except Exception:
                 pass
-            db.update_job(job["id"], status="failed", output_raw=None, output_clean=None, error=str(exc)[:2000])
+            db.update_job(job["id"], status="failed", output_raw=None, output_clean=None, error=str(exc)[:2000], finished_at=db.utcnow())
 
 
 def start_worker() -> None:

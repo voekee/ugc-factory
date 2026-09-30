@@ -6,10 +6,13 @@ import os
 import secrets
 import sys
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
+from pathlib import Path
 from urllib.parse import quote
 
 import runpod
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 AUTO_GPU_CANDIDATES = [
@@ -33,7 +36,28 @@ def _create_single_pod(
     disk: int,
     hf_token: str,
     rate: float,
+    model: str = "legacy",
+    on_creating: Callable | None = None,
 ) -> dict[str, Any]:
+    extra = {}
+    h3_env = {}
+    gpu_count = 1
+    if model == "h3-fl2va":
+        from app.h3 import require_h3, PROFILES
+        from app.config import settings
+        require_h3()
+        if not settings.h3_network_volume_id or not settings.h3_data_center_id:
+            raise ValueError("H3 requires a pre-staged persistent weight volume and datacenter")
+        profile = PROFILES[settings.h3_profile]
+        gpu, gpu_count, cloud = profile["gpu"], profile["count"], "SECURE"
+        extra = {"network_volume_id": settings.h3_network_volume_id,
+                 "data_center_id": settings.h3_data_center_id,
+                 "country_code": settings.h3_allowed_region.upper(), "min_memory_in_gb": 128}
+        h3_env = {name.upper(): str(getattr(settings, name)) for name in (
+            "h3_enabled", "h3_license_authorized", "h3_allowed_region", "h3_operator_region",
+            "h3_license_mode", "h3_authorization_reference", "h3_profile")}
+    elif model != "legacy":
+        raise ValueError("Unknown session model")
     runpod.api_key = api_key
     access = secrets.token_urlsafe(18)
     session_name = f"ugc-factory-{secrets.token_hex(4)}"
@@ -41,26 +65,44 @@ def _create_single_pod(
     env = {
         "RUNPOD_API_KEY": api_key,
         "RUNPOD_SESSION_NAME": session_name,
+        "RUNPOD_GPU_COUNT": str(gpu_count),
+        "UGC_GPU_TYPE": gpu,
         "APP_ACCESS_TOKEN": access,
         "HF_TOKEN": hf_token,
         "UGC_RENDERER_MODE": "real",
+        "SESSION_MODEL": model,
         "DATA_DIR": "/workspace/ugc-factory-data",
         "SESSION_STARTED_AT": datetime.now(timezone.utc).isoformat(),
         "SESSION_HOURLY_RATE_USD": str(rate),
         "MAX_SESSION_HOURS": str(hours),
+        "EXTERNAL_GUARDIAN": str(on_creating is not None),
+        **h3_env,
     }
 
+    if on_creating:
+        # Journal the exact remote name before sending a non-idempotent allocation request.
+        on_creating({"session_name": session_name, "started_at": env["SESSION_STARTED_AT"],
+                     "hours": hours, "model": model, "session_token": access,
+                     "selected_gpu": gpu, "selected_cloud": cloud})
+    from lifecycle_test import enabled, pod_options
+    if enabled() and model == "legacy":
+        extra_test, env_test = pod_options()
+        extra.update(extra_test)
+        env.update(env_test)
+        image, disk = "python:3.11-slim-bookworm", 10
+        env["MAX_SESSION_HOURS"] = str(min(hours, 0.25))
     pod = runpod.create_pod(
         name=session_name,
         image_name=image,
         gpu_type_id=gpu,
         cloud_type=cloud,
-        gpu_count=1,
+        gpu_count=gpu_count,
         volume_in_gb=0,
         container_disk_in_gb=disk,
         ports="8000/http",
         env=env,
-        start_ssh=True,
+        start_ssh=False,
+        **extra,
     )
 
     pod_id = str(pod["id"])
@@ -75,6 +117,8 @@ def _create_single_pod(
         "access_token": access,
         "selected_gpu": gpu,
         "selected_cloud": cloud,
+        "gpu_count": gpu_count,
+        "model": model,
     }
 
 
@@ -88,11 +132,13 @@ def launch_pod(
     disk: int = 180,
     hf_token: str = "",
     rate: float = 0.0,
+    model: str = "legacy",
+    on_creating: Callable | None = None,
 ) -> dict[str, Any]:
     if not api_key:
         raise ValueError("Runpod API key is required.")
 
-    if gpu != "AUTO":
+    if gpu != "AUTO" or model == "h3-fl2va":
         return _create_single_pod(
             api_key=api_key,
             image=image,
@@ -101,7 +147,7 @@ def launch_pod(
             hours=hours,
             disk=disk,
             hf_token=hf_token,
-            rate=rate,
+            rate=rate, model=model, on_creating=on_creating,
         )
 
     cloud_order = ["COMMUNITY", "SECURE"] if cloud == "ALL" else [cloud]
@@ -118,10 +164,15 @@ def launch_pod(
                     hours=hours,
                     disk=disk,
                     hf_token=hf_token,
-                    rate=rate,
+                    rate=rate, model=model, on_creating=on_creating,
                 )
             except Exception as exc:
-                errors.append(f"{candidate} / {candidate_cloud}: {exc}")
+                # Unknown/network errors can mean allocation succeeded but the reply was lost.
+                # Never create a second paid Pod in that case.
+                message = str(exc).lower()
+                if not any(term in message for term in ("no instances", "no available", "not enough resources", "insufficient capacity")):
+                    raise
+                errors.append(f"{candidate} / {candidate_cloud}: capacity unavailable")
 
     raise RuntimeError(
         "No supported GPU is currently available on Runpod for this session. "
@@ -133,6 +184,7 @@ def launch_pod(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Advanced CLI launcher for an ephemeral UGC Factory Pod")
     parser.add_argument("--image", default=os.getenv("UGC_FACTORY_IMAGE", "ghcr.io/voekee/ugc-factory:latest"))
+    parser.add_argument("--model", choices=["legacy", "h3-fl2va"], default="legacy")
     parser.add_argument("--gpu", default="AUTO")
     parser.add_argument("--cloud", choices=["ALL", "SECURE", "COMMUNITY"], default="ALL")
     parser.add_argument("--hours", type=float, default=5.0)
@@ -153,7 +205,7 @@ def main() -> None:
         hours=args.hours,
         disk=args.disk,
         hf_token=args.hf_token,
-        rate=args.rate,
+        rate=args.rate, model=args.model,
     )
 
     print(f"\nPod: {result['pod_id']}")
