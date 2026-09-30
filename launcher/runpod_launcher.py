@@ -13,7 +13,7 @@ from urllib.parse import quote
 import runpod
 
 # Filled only after the reference runtime builds successfully; never a floating tag.
-SKYREELS_IMAGE = "ghcr.io/voekee/ugc-factory@sha256:4dcb299fc9154c4f46f5701eff036a7441d7ebcd777a5b2431118c7093db4034"
+SKYREELS_IMAGE = "ghcr.io/voekee/ugc-factory@sha256:705a3fbc52304cec52eabc6535141b2be4f61333342da2f26d038097abbde82d"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -193,7 +193,7 @@ def launch_pod(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Advanced CLI launcher for an ephemeral UGC Factory Pod")
-    parser.add_argument("--image", default=os.getenv("UGC_FACTORY_IMAGE", "ghcr.io/voekee/ugc-factory@sha256:5fded60862880be5e9585f060d746c1b85d6b34ac4b014e37ca61c14b23f4bf9"))
+    parser.add_argument("--image", default=os.getenv("UGC_FACTORY_IMAGE", "ghcr.io/voekee/ugc-factory@sha256:705a3fbc52304cec52eabc6535141b2be4f61333342da2f26d038097abbde82d"))
     parser.add_argument("--model", choices=["legacy", "wan22", "skyreelsv3", "h3-fl2va"], default="legacy")
     parser.add_argument("--gpu", default="AUTO")
     parser.add_argument("--cloud", choices=["ALL", "SECURE", "COMMUNITY"], default="ALL")

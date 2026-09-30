@@ -7,7 +7,7 @@ Target inspected: `New project-3.mp4` and `New project.mp4`, both H.264, 480×85
 | Path | Inputs and purpose | Evidence |
 | --- | --- | --- |
 | Wan 2.2 Lightning I2V | One first frame, silent product variants, 720×1280 at 16 FPS, four trained steps | Previous real resident-worker test: 97.41 seconds warm per 4-second clip. Not a benchmark on these two product clips. |
-| SkyReels V3 Reference2Video | One to four still references for product/person/scene, first reference aspect, five seconds, 24 FPS, official eight-step BF16 path | New resident adapter, API, database, UI and isolated runtime preparation. CPU contracts pass. GPU timing and product fidelity pending. |
+| SkyReels V3 Reference2Video | One to four still references for product/person/scene, first reference aspect, five seconds, 24 FPS, official eight-step BF16 path | Two real product clips completed: 639.19 seconds cold, 559.40 seconds warm. Projection recognizable; mounting clip changes the product. See the live validation report. |
 | LTX-2.5 distilled 22B | First and optional last keyframe, audio, existing native adapter | Already implemented; no measured comparison with Wan on this hardware. Loads anew per clip in the existing path. |
 | LongCat Avatar 1.5 | Portrait plus driving speech/audio, talking creator | Not integrated into this product flow. Official multi-GPU/audio runtime would require a separate prepared image and audio-upload flow. Silent mounting/projection clips are not its intended task. |
 | MiniMax H3 | Native first/last plus audio | Contract tests only; deployment license authorization remains required before allocation/execution. |
@@ -20,7 +20,7 @@ These are task capabilities, not 9/10 rankings. None establishes parity with Kli
 - Additional image inputs are validated, stored once by content hash, persisted with the jobs, reused across variations and preserved on explicit retry. Models that do not accept them reject them before queueing. At most four references; no forced aspect match between independent product/scene references.
 - SkyReels uses a dedicated session. An unprepared image is blocked before allocation; switching to it inside a loaded Wan/LTX session is blocked.
 - The separate SkyReels runtime keeps Torch 2.9.1/CUDA 12.8 and the working Wan/LTX environments. Only upstream package initializers are narrowed to the reference pipeline, avoiding unneeded talking-avatar and distributed dependencies; official reference transformer/SDPA/scheduler implementation remains intact. No quantization or reduction below its trained eight steps.
-- Wan text cache stores exact detached embeddings on CPU, bounded to eight prompts, and preserves the reference, random seed, frame count, resolution, weights and trained schedule. It is not frame/latent caching. `WAN_PROMPT_CACHE=0` disables it. Its extra speed benefit is unmeasured until a new GPU run.
+- Wan text cache stores exact detached embeddings on CPU, bounded to eight prompts, and preserves the reference, random seed, frame count, resolution, weights and trained schedule. It is not frame/latent caching. `WAN_PROMPT_CACHE=0` disables it. A real repeated prompt hit was observed; 96.88 seconds warm is essentially the earlier resident-worker timing, so no large extra speedup is established.
 - Generate stays disabled while uploads are prepared/queued, even when periodic status refresh completes.
 - Idle timeout stays 600 seconds. All paid validation Pods must be independently verified terminated.
 
