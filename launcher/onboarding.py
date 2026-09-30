@@ -30,7 +30,7 @@ CONFIG_DIR = Path.home() / ".ugc-factory"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 DEFAULTS = {
-    "image": "ghcr.io/voekee/ugc-factory@sha256:a61c73ad4a181500dba099ae0430f88cb79ecb49f7b8c2528f53ae28d4ee65bb",
+    "image": "ghcr.io/voekee/ugc-factory@sha256:c098241906b9cd872232b82eae64cc9817e0bab1e950e56601f8cb298444240b",
     "hours": 1.0,
     "disk": 180,
 }

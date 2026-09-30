@@ -272,7 +272,7 @@
         <summary>Advanced settings</summary>
         <div class="advanced">
           <div class="field"><label>Ephemeral disk GB</label><input id="disk" type="number" min="100" max="1000" step="10" value="180"></div>
-          <div class="field"><label>Container image</label><input id="image" value="ghcr.io/voekee/ugc-factory@sha256:a61c73ad4a181500dba099ae0430f88cb79ecb49f7b8c2528f53ae28d4ee65bb"></div>
+          <div class="field"><label>Container image</label><input id="image" value="ghcr.io/voekee/ugc-factory@sha256:c098241906b9cd872232b82eae64cc9817e0bab1e950e56601f8cb298444240b"></div>
         </div>
       </details>
 
@@ -766,7 +766,7 @@ $("#forgetKeys").onclick=async()=>{
 async function bootstrap(){
   bootstrapData=await get("/api/bootstrap");
   $("#configPath").textContent=bootstrapData.config_path;
-  $("#image").value=bootstrapData.image||"ghcr.io/voekee/ugc-factory@sha256:a61c73ad4a181500dba099ae0430f88cb79ecb49f7b8c2528f53ae28d4ee65bb";
+  $("#image").value=bootstrapData.image||"ghcr.io/voekee/ugc-factory@sha256:c098241906b9cd872232b82eae64cc9817e0bab1e950e56601f8cb298444240b";
   $("#disk").value=bootstrapData.disk||180;
 
   if(bootstrapData.lifecycle_test){

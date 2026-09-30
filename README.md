@@ -1,4 +1,4 @@
-> **Development branch status (2026-09-30):** Safari-to-RunPod L40/LTX rendering, playback, download, archive and verified termination have been tested. The branch launcher pins the safety worker image. H3 remains authorization-gated and has not been GPU-tested. See [implementation evidence and remaining limits](docs/H3-IMPLEMENTATION.md). The legacy ephemeral-storage description below refers to the existing deployed image; new launcher backups require the matching updated worker.
+> **Development branch status (2026-09-30):** Wan 2.2 Lightning has completed real Safari-to-RunPod generation, playback, download, local archive and verified termination. It is the default quality-oriented test path; see [measured timings and limits](docs/WAN-QUALITY-VALIDATION-2026-09-30.md). H3 remains authorization-gated and has not been GPU-tested. Earlier session-safety evidence is recorded in [implementation status](docs/H3-IMPLEMENTATION.md).
 
 <p align="center">
   <img src="assets/ugc-factory-hero.svg" alt="UGC Factory" width="100%">
@@ -130,11 +130,11 @@ The default session is:
 
 | Setting | Default |
 |---|---|
-| Container | `ghcr.io/voekee/ugc-factory:latest` |
-| GPU | NVIDIA GeForce RTX 5090 |
+| Container | Pinned validation worker digest from the launcher |
+| GPU | Select a live offer; Wan requires at least 80 GB VRAM and 160 GB host RAM |
 | Cloud | Community |
-| Session | 5 hours |
-| Ephemeral disk | 350 GB |
+| Session | 1 hour maximum; select 30 minutes for a first test |
+| Ephemeral disk | 180 GB |
 | Network Volume | none |
 
 The onboarding page remembers those choices locally too.
@@ -144,7 +144,7 @@ The onboarding page remembers those choices locally too.
 Start small:
 
 ```text
-Model        LTX-2.5
+Model        Wan 2.2 Lightning
 Duration     4 seconds
 Variations   1
 Start frame  one valid image
@@ -218,7 +218,7 @@ You can:
 - select several clips
 - export selected clips as a ZIP
 
-Nothing in the library is permanent after Pod termination.
+Pod-local files disappear on termination. With the matching worker and the local launcher running, completed outputs are archived under `~/.ugc-factory/sessions/` and remain accessible through Saved videos on this Mac. Download outputs directly as well for any unmanaged session.
 
 ---
 
@@ -226,7 +226,7 @@ Nothing in the library is permanent after Pod termination.
 
 ## LTX-2.5
 
-Recommended default.
+Available fast legacy option. The current launcher defaults to the Wan e-commerce test preset.
 
 Best fit in V1 for:
 
@@ -249,7 +249,9 @@ The adapter uses the fast distilled pipeline.
 
 ## Wan 2.2 I2V A14B
 
-Use it when you want a different motion or fidelity profile.
+The e-commerce test path uses Wan 2.2 with trained LightX2V Lightning adapters, a four-step Euler schedule and BF16 base weights. It requires an 80 GB or larger GPU and 160 GB host RAM. The image contains its dependencies; no runtime package compilation is needed.
+
+The original full 40-step run was too slow for the bounded test on RTX PRO 6000. Quality and timing evidence are recorded in [the Wan validation report](docs/WAN-QUALITY-VALIDATION-2026-09-30.md). No parity claim with proprietary models is implied.
 
 | Control | Support |
 |---|---:|
