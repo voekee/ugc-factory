@@ -1,9 +1,6 @@
 # Keep the GPU-tested Wan/LTX runtimes intact; add an isolated reference-only runtime.
 FROM ghcr.io/voekee/ugc-factory@sha256:5fded60862880be5e9585f060d746c1b85d6b34ac4b014e37ca61c14b23f4bf9
 WORKDIR /app
-COPY app ./app
-COPY static ./static
-COPY scripts ./scripts
 RUN git clone --no-checkout --filter=blob:none https://github.com/SkyworkAI/SkyReels-V3.git /opt/ugc-models/SkyReels-Reference \
     && git -C /opt/ugc-models/SkyReels-Reference fetch --depth 1 origin 28c771e8456341be6a213e3d1133ed1fd19bf75d \
     && git -C /opt/ugc-models/SkyReels-Reference checkout --detach -q 28c771e8456341be6a213e3d1133ed1fd19bf75d \
@@ -11,8 +8,13 @@ RUN git clone --no-checkout --filter=blob:none https://github.com/SkyworkAI/SkyR
     && /opt/skyreels-venv/bin/python -m pip install --no-cache-dir \
        diffusers==0.34.0 transformers==4.53.2 tokenizers==0.21.4 peft==0.17.1 \
        accelerate==1.8.1 huggingface-hub==0.34.4 ftfy==6.3.1 \
-       imageio==2.37.0 imageio-ffmpeg==0.6.0 av==16.0.1 sentencepiece==0.2.1 \
-    && python /app/scripts/prepare_skyreels_runtime.py \
+       imageio==2.37.0 imageio-ffmpeg==0.6.0 av==16.0.1 sentencepiece==0.2.1 numpy==1.26.4 \
+    && /opt/skyreels-venv/bin/python -m pip install --no-cache-dir --no-deps \
+       --index-url https://download.pytorch.org/whl/cu128 torchvision==0.24.1
+COPY app ./app
+COPY static ./static
+COPY scripts ./scripts
+RUN python /app/scripts/prepare_skyreels_runtime.py \
     && PYTHONPATH=/opt/ugc-models/SkyReels-Reference /opt/skyreels-venv/bin/python -c "from skyreels_v3.pipelines import ReferenceToVideoPipeline; import torch; assert torch.version.cuda == '12.8'; print('SkyReels reference runtime imports successfully; weights not downloaded')"
 LABEL org.ugc-factory.skyreels-revision="28c771e8456341be6a213e3d1133ed1fd19bf75d"
 CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--workers","1"]
