@@ -2,13 +2,14 @@
 import json
 import os
 import time
+import sys
 from pathlib import Path
 
 MODEL_ID = 'Wan-AI/Wan2.2-I2V-A14B-Diffusers'
 REVISION = '596658fd9ca6b7b71d5057529bbf319ecbc61d74'
 
 
-def main():
+def load_pipeline():
     import torch
     from PIL import Image, ImageOps
     from huggingface_hub import snapshot_download, hf_hub_download
@@ -22,7 +23,6 @@ def main():
     if memory < 75:
         raise RuntimeError('Wan quality preset needs an 80 GB or larger GPU; choose a suitable session')
     torch.backends.cuda.matmul.allow_tf32 = True
-    duration = int(os.environ['UGC_DURATION'])
     root = Path(os.environ.get('MODEL_ROOT', '/workspace/models')) / 'Wan2.2-I2V-Diffusers'
     print('[WAN] Downloading or checking model files', flush=True)
     snapshot_download(MODEL_ID, revision=REVISION, local_dir=root,
@@ -46,22 +46,77 @@ def main():
         pipe.load_lora_weights(lora, adapter_name=stage, load_into_transformer_2=stage=='low')
         pipe.fuse_lora(components=['transformer_2' if stage=='low' else 'transformer'], adapter_names=[stage], lora_scale=1.0)
     pipe.unload_lora_weights()
-    pipe.enable_model_cpu_offload()
+    # Both BF16 experts fit on 96 GB GPUs. Smaller supported GPUs retain offload.
+    mode = os.environ.get('WAN_MEMORY_MODE', 'auto')
+    if mode not in {'auto', 'gpu', 'offload'}:
+        raise ValueError('WAN_MEMORY_MODE must be auto, gpu, or offload')
+    if mode == 'gpu' or (mode == 'auto' and memory >= 90):
+        print('[WAN] Keeping both BF16 experts on GPU between videos', flush=True)
+        pipe.to('cuda')
+    else:
+        print('[WAN] Keeping model resident in RAM with GPU offload', flush=True)
+        pipe.enable_model_cpu_offload()
     pipe.vae.enable_tiling()
-    image = ImageOps.fit(Image.open(os.environ['UGC_START_FRAME']).convert('RGB'), (720,1280), method=Image.Resampling.LANCZOS)
+    loaded = time.monotonic()
+    print('[WAN] Load timings '+json.dumps({'download_seconds': round(downloaded-started,2),
+          'load_seconds': round(loaded-downloaded,2)}), flush=True)
+    return pipe
+
+
+def generate(pipe, req):
+    import torch
+    from PIL import Image, ImageOps
+    from diffusers.utils import export_to_video
+    started = time.monotonic()
+    with Image.open(req['start_frame']) as source:
+        image = ImageOps.fit(source.convert('RGB'), (720,1280), method=Image.Resampling.LANCZOS)
     negative = ('blurry face, waxy skin, plastic skin, distorted face, deformed hands, extra fingers, fused fingers, '
                 'duplicate product, changing bottle shape, changing logo, flickering, jitter, sudden cuts, subtitles, watermark, cartoon, illustration')
-    loaded = time.monotonic()
     print('[WAN] Generating 720p video: 4 trained Lightning steps, BF16, native attention', flush=True)
-    frames = pipe(image=image, prompt=os.environ['UGC_PROMPT'], negative_prompt=negative,
-                  width=720, height=1280, num_frames=duration*16+1,
+    frames = pipe(image=image, prompt=req['prompt'], negative_prompt=negative,
+                  width=720, height=1280, num_frames=int(req['duration'])*16+1,
                   num_inference_steps=4, guidance_scale=1.0, guidance_scale_2=1.0,
-                  generator=torch.Generator(device='cpu').manual_seed(int(os.environ['UGC_SEED']))).frames[0]
+                  generator=torch.Generator(device='cpu').manual_seed(int(req['seed']))).frames[0]
+    torch.cuda.synchronize()
+    generated = time.monotonic()
     print('[WAN] Encoding video', flush=True)
-    export_to_video(frames, os.environ['UGC_OUTPUT'], fps=16)
-    print('[WAN] Timings '+json.dumps({'download_seconds':round(downloaded-started,2),
-          'load_seconds':round(loaded-downloaded,2),'generate_encode_seconds':round(time.monotonic()-loaded,2),
-          'total_seconds':round(time.monotonic()-started,2)}), flush=True)
+    export_to_video(frames, req['output'], fps=16)
+    print('[WAN] Timings '+json.dumps({'inference_seconds':round(generated-started,2),
+          'encode_seconds':round(time.monotonic()-generated,2),
+          'total_seconds':round(time.monotonic()-started,2),
+          'peak_gpu_memory_gb':round(torch.cuda.max_memory_allocated()/2**30,2)}), flush=True)
+
+
+def main():
+    if '--resident' not in sys.argv:
+        generate(load_pipeline(), {'prompt':os.environ['UGC_PROMPT'],
+            'start_frame':os.environ['UGC_START_FRAME'], 'duration':os.environ['UGC_DURATION'],
+            'seed':os.environ['UGC_SEED'], 'output':os.environ['UGC_OUTPUT']})
+        return
+    pipe = None
+    for line in sys.stdin:
+        req = json.loads(line)
+        try:
+            if not req.get('start_frame'):
+                raise ValueError('Wan needs a Start Frame')
+            if int(req['duration']) not in range(4, 11):
+                raise ValueError('Wan supports clips from 4 to 10 seconds')
+            if pipe is None:
+                pipe = load_pipeline()
+            else:
+                print('[WAN] Reusing loaded model; no download or adapter merge', flush=True)
+            generate(pipe, req)
+            result = {'job_id':req['job_id'], 'ok':True}
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()
+            message = ('GPU memory was insufficient. End this session and choose a larger GPU.'
+                       if 'out of memory' in str(exc).lower() else
+                       'Video generation failed. The model process will reset; you can retry.')
+            result = {'job_id':req.get('job_id'), 'ok':False, 'error':message}
+        print('@@WAN_RESULT@@'+json.dumps(result), flush=True)
+        if not result['ok']:
+            return
 
 
 if __name__ == '__main__':

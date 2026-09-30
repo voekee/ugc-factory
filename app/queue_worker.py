@@ -67,5 +67,7 @@ def start_worker() -> None:
 
 def stop_worker() -> None:
     _STOP.set()
+    from app.renderers.wan import wan_renderer
+    wan_renderer.close()
     if _THREAD:
         _THREAD.join(timeout=2)

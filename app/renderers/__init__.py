@@ -13,6 +13,9 @@ def get_renderer(renderer_id: str):
         return H3Renderer()
     if settings.ugc_renderer_mode.lower() == "mock":
         return MockRenderer()
+    if renderer_id == "wan22" and settings.wan_runner_cmd == "bash scripts/run_wan.sh":
+        from app.renderers.wan import wan_renderer
+        return wan_renderer
     commands = {
         "ltx25": settings.ltx_runner_cmd,
         "wan22": settings.wan_runner_cmd,
