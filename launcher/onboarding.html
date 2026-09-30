@@ -272,7 +272,7 @@
         <summary>Advanced settings</summary>
         <div class="advanced">
           <div class="field"><label>Ephemeral disk GB</label><input id="disk" type="number" min="100" max="1000" step="10" value="180"></div>
-          <div class="field"><label>Container image</label><input id="image" value="ghcr.io/voekee/ugc-factory@sha256:33b159068748d4e037e3eb998a4dfc84f9ec6e37190a15ad4668be5f01b24efb"></div>
+          <div class="field"><label>Container image</label><input id="image" value="ghcr.io/voekee/ugc-factory@sha256:a61c73ad4a181500dba099ae0430f88cb79ecb49f7b8c2528f53ae28d4ee65bb"></div>
         </div>
       </details>
 
@@ -559,16 +559,28 @@ function renderActiveSession(status){
   if(!status || !status.active) {
     if(status?.last_session?.termination_verified){
       $("#modelGate").textContent=bootstrapData?.lifecycle_test ? "Development test: real paid GPU, synthetic renderer, 75-second idle shutdown, 15-minute hard limit." : "GPU TERMINATED · previous session termination verified";
-      $("#startupStage").textContent="GPU TERMINATED";
+      const ended=status.last_session;
+      const elapsed=Math.max(0,(Date.parse(ended.terminated_at)-Date.parse(ended.started_at))/1000)||0;
+      go(4);
+      renderStartupStatus({...ended,elapsed_seconds:elapsed,ready:true,runtime_reported:false,
+        stage_label:"GPU TERMINATED",stage_detail:"RunPod confirms this Pod is gone. No GPU compute is running.",eta_text:"Session ended"});
       $("#step4 h1").textContent="GPU terminated.";
+      $("#step4 .lead").textContent="Compute has stopped. Saved videos remain available on this Mac.";
+      $("#podDot").classList.remove("live");
+      $("#workspaceDot").classList.remove("live");
+      $("#openWorkspace").disabled=true;
+      currentWorkspaceUrl="";
+      currentSessionToken="";
       $("#workspaceText").textContent="Termination verified with RunPod. Compute stopped.";
       $("#ready").classList.remove("show");
       $("#sessionControls").classList.remove("show");
       $("#launchRetry").style.display="flex";
+      return true;
     }
     return false;
   }
   if(status.archive_error) $("#sessionError").textContent=status.archive_error;
+  $("#step4 .lead").textContent="Open the workspace when its health check succeeds. Keep the launcher running for backups and automatic shutdown.";
 
   go(4);
   $("#step4 h1").textContent=["ending","ending_now"].includes(status.state) ? "Ending session." : status.ready ? "Workspace available." : "GPU starting.";
@@ -652,14 +664,6 @@ async function pollWorkspace(){
       currentWorkspaceUrl=currentWorkspaceUrl+sep+"session_token="+encodeURIComponent(currentSessionToken);
     }
     renderActiveSession(status);
-    if(status.ready){
-      $("#openWorkspace").disabled=false;
-      $("#workspaceDot").classList.add("live");
-      $("#workspaceText").textContent="Workspace is responding";
-      $("#ready").classList.add("show");
-      $("#sessionControls").classList.add("show");
-
-    }
     await new Promise(resolve=>setTimeout(resolve,3000));
   }
   throw new Error("The Pod was created, but the workspace did not become ready in time.");
@@ -762,7 +766,7 @@ $("#forgetKeys").onclick=async()=>{
 async function bootstrap(){
   bootstrapData=await get("/api/bootstrap");
   $("#configPath").textContent=bootstrapData.config_path;
-  $("#image").value=bootstrapData.image||"ghcr.io/voekee/ugc-factory@sha256:33b159068748d4e037e3eb998a4dfc84f9ec6e37190a15ad4668be5f01b24efb";
+  $("#image").value=bootstrapData.image||"ghcr.io/voekee/ugc-factory@sha256:a61c73ad4a181500dba099ae0430f88cb79ecb49f7b8c2528f53ae28d4ee65bb";
   $("#disk").value=bootstrapData.disk||180;
 
   if(bootstrapData.lifecycle_test){

@@ -406,7 +406,7 @@ function drawJobs(jobs) {
             '<small>' + esc(job.phase_detail || (job.prompt || '').slice(0, 90)) + '</small>' +
             log + (job.status === 'queued' ? '<button class="cancel-job button button-light" data-id="' + job.id + '">Cancel</button>' : '') +
           '</div>' +
-          '<div class="status ' + esc(job.status) + '">' + esc(job.status) + '</div>' +
+          '<div class="status ' + esc(job.status) + '">' + esc(job.phase || job.status) + '</div>' +
         '</div>';
       }).join('')
     : '<div class="queue-empty">No active renders.</div>';
