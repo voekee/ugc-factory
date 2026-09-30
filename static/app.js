@@ -233,6 +233,7 @@ function setVariations(value) {
 }
 
 function updateGenerateLabel() {
+  if (submitting) return;
   const count = Math.max(1, Number($('#variations').value || 1));
   $('#generate').textContent = count === 1 ? 'Generate' : 'Generate × ' + count;
 }
@@ -343,7 +344,7 @@ $('#generate').onclick = async () => {
   }
 
   if (!startFile && renderer.requires_start_frame) {
-    $('#formError').textContent = 'Add a start frame first.';
+    $('#formError').textContent = renderer.max_reference_images > 1 ? 'Add a reference image first.' : 'Add a start frame first.';
     return;
   }
 
@@ -353,6 +354,10 @@ $('#generate').onclick = async () => {
     return;
   }
 
+  const requestedRenderer = renderer;
+  const requestedDuration = duration;
+  const requestedVariations = Number($('#variations').value || 1);
+  const requestedReferences = renderer.max_reference_images > 1 ? referenceFiles.slice() : [];
   submitting = true;
   button.disabled = true;
   button.textContent = 'Preparing…';
@@ -360,20 +365,20 @@ $('#generate').onclick = async () => {
   try {
     const values = await Promise.all([
       fileToDataUrl(startFile),
-      renderer.supports_end_frame ? fileToDataUrl(endFile) : Promise.resolve(null),
+      requestedRenderer.supports_end_frame ? fileToDataUrl(endFile) : Promise.resolve(null),
     ]);
 
     button.textContent = 'Queueing…';
 
     const payload = {
       owner,
-      renderer: renderer.id,
+      renderer: requestedRenderer.id,
       prompt,
-      duration,
-      variations: Number($('#variations').value || 1),
+      duration: requestedDuration,
+      variations: requestedVariations,
       start_frame_data_url: values[0],
       end_frame_data_url: values[1],
-      reference_frame_data_urls: renderer.max_reference_images > 1 ? await Promise.all(referenceFiles.map(fileToDataUrl)) : [],
+      reference_frame_data_urls: await Promise.all(requestedReferences.map(fileToDataUrl)),
     };
 
     await api('/api/jobs-json', {

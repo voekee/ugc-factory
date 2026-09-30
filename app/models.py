@@ -44,8 +44,8 @@ RENDERERS: dict[str, RendererCapabilities] = {
     "ltx25": RendererCapabilities(
         id="ltx25",
         name="LTX-2.5",
-        description="Fast local UGC renderer with native first/last-frame control.",
-        recommended_for="Fast UGC iteration, controlled motion, first/last frame",
+        description="Local UGC renderer with native first/last-frame control and audio.",
+        recommended_for="Controlled motion, first/last frame, audio",
         supports_start_frame=True,
         supports_end_frame=True,
         supports_audio=True,
@@ -73,6 +73,6 @@ RENDERERS: dict[str, RendererCapabilities] = {
         supports_audio=False,
         supported_durations=[5],
         max_reference_images=4,
-        notes="1–4 product, person or scene references; 5 seconds at 24 FPS. References are not exact keyframes. Requires a dedicated SkyReels session with its prepared runtime. Product/logo fidelity and speed need a live benchmark.",
+        notes="1–4 product, person or scene references; 5 seconds at 24 FPS. Requires a dedicated SkyReels session. References are not exact keyframes. Product shape and lettering can change; review each result. This quality preset is slower than Wan on our tested GPU.",
     ),
 }

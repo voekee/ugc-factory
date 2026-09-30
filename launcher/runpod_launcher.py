@@ -13,7 +13,7 @@ from urllib.parse import quote
 import runpod
 
 # Filled only after the reference runtime builds successfully; never a floating tag.
-SKYREELS_IMAGE = ""
+SKYREELS_IMAGE = "ghcr.io/voekee/ugc-factory@sha256:4dcb299fc9154c4f46f5701eff036a7441d7ebcd777a5b2431118c7093db4034"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

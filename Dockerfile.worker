@@ -1,6 +1,6 @@
-# Reuse the existing, pinned, CUDA/LTX runtime; update only application code.
+# Reuse the GPU-validated Wan/LTX runtime and isolated SkyReels environment.
 # Branch validation never changes the production :latest tag.
-FROM ghcr.io/voekee/ugc-factory@sha256:89eaf22b169d29f36a5534d0117b74805bfcb9e73a9a0b6ec7eb8defeaa3e39e
+FROM ghcr.io/voekee/ugc-factory@sha256:4dcb299fc9154c4f46f5701eff036a7441d7ebcd777a5b2431118c7093db4034
 WORKDIR /app
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt
@@ -9,12 +9,7 @@ COPY static ./static
 COPY scripts ./scripts
 CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--workers","1"]
 
-# Isolate Wan dependencies from the working LTX runtime. No GPU-time installs.
-RUN uv venv --seed --system-site-packages /opt/wan-venv --python python3 \
-    && /opt/wan-venv/bin/python -m pip install --no-cache-dir \
-       diffusers==0.38.0 peft==0.18.1 transformers==4.57.1 accelerate==1.11.0 \
-       huggingface-hub==0.36.0 sentencepiece==0.2.1 ftfy==6.3.1 \
-       imageio==2.37.0 imageio-ffmpeg==0.6.0 \
-    && /opt/wan-venv/bin/python -c "from diffusers import WanImageToVideoPipeline, AutoencoderKLWan; import torch; assert torch.cuda.is_available() is False; print(torch.__version__)"
-
+# Validate inherited environments on CPU; no GPU-time installs or weight downloads.
+RUN /opt/wan-venv/bin/python -c "from diffusers import WanImageToVideoPipeline, AutoencoderKLWan; import torch; assert not torch.cuda.is_available()" \
+    && PYTHONPATH=/opt/ugc-models/SkyReels-Reference /opt/skyreels-venv/bin/python -c "from skyreels_v3.pipelines import ReferenceToVideoPipeline; import torch; assert not torch.cuda.is_available()"
 RUN /opt/wan-venv/bin/python /app/scripts/check_wan_lightning.py

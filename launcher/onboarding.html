@@ -579,7 +579,7 @@ function renderActiveSession(status){
     }
     return false;
   }
-  if(status.archive_error) $("#sessionError").textContent=status.archive_error;
+  $("#sessionError").textContent=status.archive_error||"";
   $("#step4 .lead").textContent="Open the workspace when its health check succeeds. Keep the launcher running for backups and automatic shutdown.";
 
   go(4);
@@ -707,7 +707,7 @@ $("#maxPrice").oninput=filterOffers;
 $("#sortGpu").onchange=filterOffers;
 $("#continueGpu").onclick=()=>{updateSessionSummary();go(3);$("#sessionModel").onchange()};
 $("#startSession").onclick=startSession;
-$("#findAnother").onclick=async()=>{$("#launchError").textContent="";$("#launchRetry").style.display="none";selectedOffer=null;$("#startSession").disabled=false;$("#sessionModel").onchange();$("#gpuSelection").style.display="none";go(2);await loadGpus()};
+$("#findAnother").onclick=async()=>{$("#launchError").textContent="";$("#sessionError").textContent="";$("#launchRetry").style.display="none";selectedOffer=null;$("#startSession").disabled=false;$("#sessionModel").onchange();$("#gpuSelection").style.display="none";go(2);await loadGpus()};
 
 $("#openWorkspace").onclick=()=>{
   if(currentWorkspaceUrl) window.open(currentWorkspaceUrl,"_blank");
