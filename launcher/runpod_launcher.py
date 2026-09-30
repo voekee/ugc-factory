@@ -187,7 +187,7 @@ def launch_pod(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Advanced CLI launcher for an ephemeral UGC Factory Pod")
-    parser.add_argument("--image", default=os.getenv("UGC_FACTORY_IMAGE", "ghcr.io/voekee/ugc-factory@sha256:c098241906b9cd872232b82eae64cc9817e0bab1e950e56601f8cb298444240b"))
+    parser.add_argument("--image", default=os.getenv("UGC_FACTORY_IMAGE", "ghcr.io/voekee/ugc-factory@sha256:5fded60862880be5e9585f060d746c1b85d6b34ac4b014e37ca61c14b23f4bf9"))
     parser.add_argument("--model", choices=["legacy", "h3-fl2va"], default="legacy")
     parser.add_argument("--gpu", default="AUTO")
     parser.add_argument("--cloud", choices=["ALL", "SECURE", "COMMUNITY"], default="ALL")

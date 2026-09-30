@@ -272,7 +272,7 @@
         <summary>Advanced settings</summary>
         <div class="advanced">
           <div class="field"><label>Ephemeral disk GB</label><input id="disk" type="number" min="100" max="1000" step="10" value="180"></div>
-          <div class="field"><label>Container image</label><input id="image" value="ghcr.io/voekee/ugc-factory@sha256:c098241906b9cd872232b82eae64cc9817e0bab1e950e56601f8cb298444240b"></div>
+          <div class="field"><label>Container image</label><input id="image" value="ghcr.io/voekee/ugc-factory@sha256:5fded60862880be5e9585f060d746c1b85d6b34ac4b014e37ca61c14b23f4bf9"></div>
         </div>
       </details>
 
@@ -616,6 +616,25 @@ async function startSession(){
   $("#startSession").disabled=true;
   $("#sessionError").textContent="";
   go(4);
+  // A new allocation must not inherit the previous session's terminated/ready UI.
+  currentWorkspaceUrl="";
+  currentSessionToken="";
+  $("#launchError").textContent="";
+  $("#launchRetry").style.display="none";
+  $("#step4 h1").textContent="GPU starting.";
+  $("#step4 .lead").textContent="Allocating your GPU and checking the workspace. Keep the launcher running.";
+  $("#globalComputeState").textContent="GPU STARTING · allocation requested";
+  $("#podText").textContent="Requesting GPU allocation…";
+  $("#workspaceText").textContent="Waiting for allocation and workspace health…";
+  $("#startupStage").textContent="GPU STARTING";
+  $("#startupDetail").textContent="Checking allocation. The workspace opens only after its health check succeeds.";
+  $("#elapsedTime").textContent="0:00";
+  $("#etaText").textContent="Waiting for RunPod";
+  $("#startupPercent").textContent="GPU STARTING";
+  $("#startupWarning").textContent="";
+  $("#openWorkspace").disabled=true;
+  for(const id of ["#ready","#telemetry","#sessionControls"]) $(id).classList.remove("show");
+  for(const id of ["#podDot","#workspaceDot"]) $(id).classList.remove("live");
 
   workspaceTab=null;
 
@@ -650,7 +669,9 @@ async function startSession(){
 }
 
 async function pollWorkspace(){
-  for(let i=0;i<240;i++){
+  const startupDeadline=Date.now()+12*60*1000;
+  let hasBeenReady=false;
+  for(;;){
     const status=await get("/api/status");
     if(status.error && !status.active && !status.pending_creation) throw new Error(status.error);
     if(status.pending_creation){renderActiveSession(status);await new Promise(resolve=>setTimeout(resolve,3000));continue;}
@@ -664,9 +685,11 @@ async function pollWorkspace(){
       currentWorkspaceUrl=currentWorkspaceUrl+sep+"session_token="+encodeURIComponent(currentSessionToken);
     }
     renderActiveSession(status);
+    hasBeenReady=hasBeenReady||Boolean(status.ready);
+    if(!hasBeenReady && Date.now()>=startupDeadline)
+      throw new Error("The Pod was created, but the workspace did not become ready in time.");
     await new Promise(resolve=>setTimeout(resolve,3000));
   }
-  throw new Error("The Pod was created, but the workspace did not become ready in time.");
 }
 
 $("#sessionModel").onchange=()=>{
@@ -766,7 +789,7 @@ $("#forgetKeys").onclick=async()=>{
 async function bootstrap(){
   bootstrapData=await get("/api/bootstrap");
   $("#configPath").textContent=bootstrapData.config_path;
-  $("#image").value=bootstrapData.image||"ghcr.io/voekee/ugc-factory@sha256:c098241906b9cd872232b82eae64cc9817e0bab1e950e56601f8cb298444240b";
+  $("#image").value=bootstrapData.image||"ghcr.io/voekee/ugc-factory@sha256:5fded60862880be5e9585f060d746c1b85d6b34ac4b014e37ca61c14b23f4bf9";
   $("#disk").value=bootstrapData.disk||180;
 
   if(bootstrapData.lifecycle_test){

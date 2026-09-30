@@ -1,5 +1,7 @@
 """Exercise real subprocess reuse and recovery without CUDA/model downloads."""
 import sys
+import io
+import json
 from pathlib import Path
 
 import pytest
@@ -7,6 +9,23 @@ import pytest
 from app.config import settings
 from app.renderers.base import RenderRequest
 from app.renderers.wan import WanRenderer
+
+
+def test_real_resident_loop_loads_pipeline_once_for_two_requests(monkeypatch, capsys):
+    from scripts import run_wan_diffusers as worker
+    loaded, generated = [], []
+    pipeline = object()
+    monkeypatch.setattr(worker, 'load_pipeline', lambda: loaded.append(True) or pipeline)
+    monkeypatch.setattr(worker, 'generate', lambda pipe, req: generated.append((pipe, req['job_id'])))
+    monkeypatch.setattr(sys, 'argv', ['worker', '--resident'])
+    monkeypatch.setattr(sys, 'stdin', io.StringIO(''.join(json.dumps({
+        'job_id':job, 'start_frame':'frame.png', 'duration':4})+'\n' for job in ['a','b'])))
+    worker.main()
+    assert loaded == [True]
+    assert generated == [(pipeline,'a'),(pipeline,'b')]
+    lines = capsys.readouterr().out.splitlines()
+    assert sum(line.startswith('@@WAN_RESULT@@') for line in lines) == 2
+    assert any('Reusing loaded model' in line for line in lines)
 
 
 def setup_engine(tmp_path, monkeypatch, body):
