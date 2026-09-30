@@ -698,7 +698,8 @@ $("#sessionModel").onchange=()=>{
   const tooSmall=["wan22","skyreelsv3"].includes(model) && Number(selectedOffer?.vram_gb||0)<80;
   const unprepared=model==="skyreelsv3" && !bootstrapData?.skyreels_prepared;
   $("#startSession").disabled=gated||tooSmall||unprepared;
-  $("#modelGate").textContent=gated?"H3 execution requires deployment authorization. No GPU will be allocated.":unprepared?"SkyReels runtime is being prepared. Starting a paid GPU is blocked.":tooSmall?"Choose an 80 GB or larger GPU for this quality preset.":model==="skyreelsv3"?"Five-second videos with up to four references. First use downloads weights; speed and product fidelity must be measured.":"";
+  const h3Prepared=bootstrapData?.h3_setup?.operator_country && bootstrapData?.h3_setup?.deployment_country;
+  $("#modelGate").textContent=gated?(h3Prepared?"H3 setup saved · GPU connection and validation pending. No GPU will be allocated.":"H3 execution requires deployment authorization. No GPU will be allocated."):unprepared?"SkyReels runtime is being prepared. Starting a paid GPU is blocked.":tooSmall?"Choose an 80 GB or larger GPU for this quality preset.":model==="skyreelsv3"?"Five-second videos with up to four references. First use downloads weights; speed and product fidelity must be measured.":"";
 };
 $("#saveCredentials").onclick=saveCredentials;
 $("#refreshGpu").onclick=loadGpus;

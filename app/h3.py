@@ -1,5 +1,6 @@
 """H3 deployment policy; no model code or weights are loaded by this module."""
 from __future__ import annotations
+import re
 from app.config import settings
 
 # Community license, 2026-08-02. Separate written authorization is required here.
@@ -15,6 +16,8 @@ PROFILES = {
     "h200-4": {"gpu": "NVIDIA H200", "count": 4,
         "flags": ["--ulysses-degree", "4", "--performance-mode", "speed"]},
 }
+for _name, _profile in PROFILES.items():
+    _profile["host_ram_gb"] = 384 if _name == "5090-2" else 128
 
 
 def gate_reason() -> str | None:
@@ -42,3 +45,14 @@ def require_h3() -> None:
     reason = gate_reason()
     if reason:
         raise ValueError(reason)
+
+
+def deployment_reason() -> str | None:
+    """Pre-allocation checks; the normal Wan image must never serve H3."""
+    if reason := gate_reason():
+        return reason
+    if not re.fullmatch(r"[^\s]+@sha256:[a-f0-9]{64}", settings.h3_worker_image):
+        return "Connect a prepared H3 worker image pinned by digest before starting a GPU"
+    if not settings.h3_network_volume_id or not settings.h3_data_center_id:
+        return "Connect the H3 weight volume and its verified GPU location before starting a session"
+    return None

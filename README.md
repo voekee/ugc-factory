@@ -1,5 +1,7 @@
 > **Development branch status (2026-09-30):** Wan 2.2 Lightning has completed real Safari-to-RunPod generation, playback, download, local archive and verified termination. It is the default quality-oriented test path; see [measured timings and limits](docs/WAN-QUALITY-VALIDATION-2026-09-30.md). H3 remains authorization-gated and has not been GPU-tested. Earlier session-safety evidence is recorded in [implementation status](docs/H3-IMPLEMENTATION.md).
 
+H3 can be prepared before connecting hardware: [local setup and deferred GPU connection](docs/H3-SETUP.md). Preparation does not start a paid Pod or accept the model license on your behalf.
+
 <p align="center">
   <img src="assets/ugc-factory-hero.svg" alt="UGC Factory" width="100%">
 </p>

@@ -46,16 +46,16 @@ def _create_single_pod(
     h3_env = {}
     gpu_count = 1
     if model == "h3-fl2va":
-        from app.h3 import require_h3, PROFILES
+        from app.h3 import deployment_reason, PROFILES
         from app.config import settings
-        require_h3()
-        if not settings.h3_network_volume_id or not settings.h3_data_center_id:
-            raise ValueError("H3 requires a pre-staged persistent weight volume and datacenter")
+        if reason := deployment_reason():
+            raise ValueError(reason)
+        image = settings.h3_worker_image
         profile = PROFILES[settings.h3_profile]
         gpu, gpu_count, cloud = profile["gpu"], profile["count"], "SECURE"
         extra = {"network_volume_id": settings.h3_network_volume_id,
                  "data_center_id": settings.h3_data_center_id,
-                 "country_code": settings.h3_allowed_region.upper(), "min_memory_in_gb": 128}
+                 "country_code": settings.h3_allowed_region.upper(), "min_memory_in_gb": profile["host_ram_gb"]}
         h3_env = {name.upper(): str(getattr(settings, name)) for name in (
             "h3_enabled", "h3_license_authorized", "h3_allowed_region", "h3_operator_region",
             "h3_license_mode", "h3_authorization_reference", "h3_profile")}

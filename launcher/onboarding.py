@@ -115,6 +115,7 @@ def _mask(value: str) -> str:
 
 def _public_config() -> dict[str, Any]:
     saved = _read_config()
+    from app.config import settings
     return {
         "config_path": str(CONFIG_PATH),
         "lifecycle_test": lifecycle_test_enabled(),
@@ -124,6 +125,9 @@ def _public_config() -> dict[str, Any]:
         "hf_masked": _mask(str(saved.get("hf_token", ""))),
         "image": saved.get("image", DEFAULTS["image"]),
         "skyreels_prepared": bool(SKYREELS_IMAGE),
+        "h3_setup": {"operator_country": settings.h3_operator_region,
+                     "deployment_country": settings.h3_allowed_region,
+                     "connection_pending": not bool(settings.h3_network_volume_id and settings.h3_data_center_id)},
         "hours": float(saved.get("hours", DEFAULTS["hours"])),
         "disk": int(saved.get("disk", DEFAULTS["disk"])),
         "selected_gpu": saved.get("selected_gpu", ""),
@@ -903,8 +907,12 @@ class Handler(BaseHTTPRequestHandler):
             saved = _read_config()
             model = str(payload.get("model", "legacy"))
             if model == "h3-fl2va":
-                from app.h3 import require_h3
-                require_h3()
+                from app.h3 import deployment_reason
+                if reason := deployment_reason():
+                    raise ValueError(reason)
+                # Normal offers describe one GPU; H3's multi-GPU location and price
+                # must be verified independently before exposing paid allocation.
+                raise ValueError("H3 setup is prepared; connect and validate its dedicated GPU profile before starting")
             elif model == "skyreelsv3" and not SKYREELS_IMAGE:
                 raise ValueError("SkyReels runtime is not prepared; no GPU was allocated")
             elif model not in {"legacy", "wan22", "skyreelsv3"}:
@@ -1030,6 +1038,13 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    from app.config import Settings, settings
+    h3_config = Path(os.environ.get("UGC_H3_ENV_FILE", str(CONFIG_DIR / "h3.env")))
+    if h3_config.exists():
+        prepared = Settings(_env_file=h3_config)
+        for name in Settings.model_fields:
+            if name.startswith("h3_"):
+                setattr(settings, name, getattr(prepared, name))
     parser = argparse.ArgumentParser(description="Open the local UGC Factory onboarding launcher")
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--port", type=int, default=0)

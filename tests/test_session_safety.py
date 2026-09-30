@@ -228,7 +228,8 @@ def test_h3_launch_uses_profile_and_persistent_weights(monkeypatch):
     import runpod_launcher
     for name,value in {"h3_enabled":True,"h3_license_authorized":True,"h3_license_mode":"authorized",
         "h3_authorization_reference":"test-only", "h3_allowed_region":"DE","h3_operator_region":"DE",
-        "h3_network_volume_id":"volume", "h3_data_center_id":"EU-DE-1","h3_profile":"h100-4"}.items():
+        "h3_network_volume_id":"volume", "h3_data_center_id":"EU-DE-1","h3_profile":"h100-4",
+        "h3_worker_image":"ghcr.io/test/h3@sha256:"+"a"*64}.items():
         monkeypatch.setattr(settings,name,value)
     create=Mock(return_value={"id":"pod"})
     monkeypatch.setattr(runpod_launcher.runpod,"create_pod",create)
@@ -237,6 +238,7 @@ def test_h3_launch_uses_profile_and_persistent_weights(monkeypatch):
     assert result["gpu_count"]==4
     assert create.call_args.kwargs["network_volume_id"]=="volume"
     assert create.call_args.kwargs["country_code"]=="DE"
+    assert create.call_args.kwargs["image_name"] == settings.h3_worker_image
     assert create.call_args.kwargs["env"]["H3_LICENSE_MODE"]=="authorized"
     assert journal.call_count==1
 

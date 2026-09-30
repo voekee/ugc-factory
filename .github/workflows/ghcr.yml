@@ -5,7 +5,7 @@ on:
       runtime:
         type: choice
         default: standard
-        options: [standard, skyreels]
+        options: [standard, skyreels, h3]
         description: Prepared worker runtime
   push:
     branches: [main]
@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Free space for the H3 CUDA build
+        if: inputs.runtime == 'h3'
+        run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -25,10 +28,13 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
+        id: image
         with:
           context: .
-          file: ${{ inputs.runtime == 'skyreels' && 'Dockerfile.skyreels' || (github.ref_name == 'main' && 'Dockerfile' || 'Dockerfile.worker') }}
+          file: ${{ inputs.runtime == 'h3' && 'Dockerfile.h3' || (inputs.runtime == 'skyreels' && 'Dockerfile.skyreels' || (github.ref_name == 'main' && 'Dockerfile' || 'Dockerfile.worker')) }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/ugc-factory:${{ inputs.runtime == 'skyreels' && 'skyreels-reference' || (github.ref_name == 'main' && 'latest' || 'session-safety') }}
-            ghcr.io/${{ github.repository_owner }}/ugc-factory:sha-${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/ugc-factory:${{ inputs.runtime == 'h3' && 'h3-candidate' || (inputs.runtime == 'skyreels' && 'skyreels-reference' || (github.ref_name == 'main' && 'latest' || 'session-safety')) }}
+            ghcr.io/${{ github.repository_owner }}/ugc-factory:${{ inputs.runtime == 'h3' && 'h3-' || '' }}sha-${{ github.sha }}
+      - name: Record immutable image
+        run: echo 'Built ghcr.io/${{ github.repository_owner }}/ugc-factory@${{ steps.image.outputs.digest }}' >> "$GITHUB_STEP_SUMMARY"

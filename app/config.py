@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     h3_profile: str = "h100-4"
     h3_network_volume_id: str = ""
     h3_data_center_id: str = ""
+    h3_worker_image: str = ""
     h3_model_ready_file: Path = Path("/tmp/ugc-h3-ready.json")
     hf_token: str = ""
     session_hourly_rate_usd: float = 0.0

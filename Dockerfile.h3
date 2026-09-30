@@ -14,5 +14,7 @@ RUN python -m pip install --no-cache-dir -r /tmp/ugc-requirements.txt \
 COPY app ./app
 COPY static ./static
 COPY scripts/serve_h3.py ./scripts/serve_h3.py
+RUN python -m compileall -q app scripts \
+    && python -m pip check
 EXPOSE 8000
 CMD ["python", "-m", "scripts.serve_h3"]
