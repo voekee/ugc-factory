@@ -53,14 +53,14 @@ RENDERERS: dict[str, RendererCapabilities] = {
     ),
     "wan22": RendererCapabilities(
         id="wan22",
-        name="Wan 2.2",
+        name="Wan 2.2 Lightning",
         description="720p image-to-video all-rounder with strong fidelity and motion.",
         recommended_for="Product shots, natural motion, higher-fidelity alternates",
         supports_start_frame=True,
         supports_end_frame=False,
         supports_audio=False,
         supported_durations=list(range(4, 11)),
-        notes="Quality preset: full BF16 weights, 40 denoising steps, 720p. Requires 80 GB GPU. First use downloads ~126 GB; repeat jobs reuse weights. Silent video; no native end frame.",
+        notes="Accelerated preset: BF16 Wan with trained four-step Lightning adapters, 720p. Requires 80 GB GPU. First use downloads ~126 GB; repeat jobs reuse weights. Silent video; no native end frame.",
     ),
     "skyreelsv3": RendererCapabilities(
         id="skyreelsv3",
