@@ -3,6 +3,7 @@
 FROM runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2404
 ARG SGLANG_REV=7b30ff26eea8b593efe00d429eb001ad446c3f2a
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
+    SGLANG_BUILD_RUST_EXTS=none \
     VIRTUAL_ENV=/opt/h3-venv PATH="/opt/h3-venv/bin:$PATH" \
     HF_HUB_OFFLINE=1 H3_MODEL_PATH=/runpod-volume/models/MiniMax-H3 \
     UGC_RENDERER_MODE=real DATA_DIR=/workspace/ugc-factory-data
