@@ -365,8 +365,11 @@ async function refresh() {
     sessionEnding = ['ending', 'terminated'].includes(sessionResponse.state);
     $('#generate').disabled = sessionEnding || renderer?.available === false;
 
+    const currentJob = jobsResponse.jobs.find(job => ['rendering', 'cleaning'].includes(job.status));
+    const sessionLabel = sessionEnding ? 'ENDING SESSION' :
+      (currentJob?.phase || (sessionResponse.active_jobs ? 'Queued' : 'Ready for a request'));
     $('#sessionText').textContent =
-      (sessionResponse.mode === 'mock' ? 'SYNTHETIC TEST · ' : '') + (!sessionResponse.gpu_type || sessionResponse.gpu_type === 'Unavailable' ? '' : sessionResponse.gpu_type + ' · ') + (!(sessionResponse.hourly_rate_usd > 0) ? '' : '$' + Number(sessionResponse.hourly_rate_usd).toFixed(2) + '/h · ') + sessionResponse.state + ' · ' + Math.floor(sessionResponse.elapsed_seconds / 60) + 'm · ' +
+      (sessionResponse.mode === 'mock' ? 'SYNTHETIC TEST · ' : '') + (!sessionResponse.gpu_type || sessionResponse.gpu_type === 'Unavailable' ? '' : sessionResponse.gpu_type + ' · ') + (!(sessionResponse.hourly_rate_usd > 0) ? '' : '$' + Number(sessionResponse.hourly_rate_usd).toFixed(2) + '/h · ') + sessionLabel + ' · ' + Math.floor(sessionResponse.elapsed_seconds / 60) + 'm · ' +
       (sessionResponse.estimated_cost_usd == null ? 'Cost unavailable' : '~$' + Number(sessionResponse.estimated_cost_usd).toFixed(3)) + ' · ' +
       sessionResponse.active_jobs + ' active';
   } catch (error) {
