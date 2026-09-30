@@ -21,5 +21,8 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          file: ${{ github.ref_name == 'main' && 'Dockerfile' || 'Dockerfile.worker' }}
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/ugc-factory:latest
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ugc-factory:${{ github.ref_name == 'main' && 'latest' || 'session-safety' }}
+            ghcr.io/${{ github.repository_owner }}/ugc-factory:sha-${{ github.sha }}

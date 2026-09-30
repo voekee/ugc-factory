@@ -1,0 +1,10 @@
+# Reuse the existing, pinned, CUDA/LTX runtime; update only application code.
+# Branch validation never changes the production :latest tag.
+FROM ghcr.io/voekee/ugc-factory@sha256:89eaf22b169d29f36a5534d0117b74805bfcb9e73a9a0b6ec7eb8defeaa3e39e
+WORKDIR /app
+COPY requirements.txt ./
+RUN python -m pip install --no-cache-dir -r requirements.txt
+COPY app ./app
+COPY static ./static
+COPY scripts ./scripts
+CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--workers","1"]

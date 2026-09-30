@@ -58,7 +58,7 @@ fi
 
 FRAMES=$(( UGC_DURATION * 24 + 1 ))
 
-echo "[LTX] Loading model and starting render: ${UGC_DURATION}s, ${FRAMES} frames, 736x1280..."
+echo "[LTX] Loading model and starting render: ${UGC_DURATION}s, ${FRAMES} frames, 768x1280..."
 
 CMD=(
   python -m ltx_pipelines.distilled
@@ -67,7 +67,7 @@ CMD=(
   --video-vae-path "$VIDEO_VAE"
   --audio-vae-path "$AUDIO_VAE"
   --spatial-upsampler-path "$SPATIAL_UPSCALER"
-  --width 736
+  --width 768
   --height 1280
   --frame-rate 24
   --num-frames "$FRAMES"

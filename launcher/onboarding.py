@@ -253,7 +253,7 @@ def _discover_gpu_offers(api_key: str) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             continue
 
-        if vram < (8 if lifecycle_test_enabled() else 24):
+        if vram < (8 if lifecycle_test_enabled() else 48):
             continue
 
         display_name = str(gpu.get("displayName") or gpu_id.replace("NVIDIA ", ""))
