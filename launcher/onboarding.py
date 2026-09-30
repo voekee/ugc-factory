@@ -903,6 +903,10 @@ class Handler(BaseHTTPRequestHandler):
 
             if not runpod_key:
                 raise ValueError("Runpod API key is missing. Go back to Credentials.")
+            if model == "legacy" and not lifecycle_test_enabled():
+                if not hf_token:
+                    raise ValueError("Connect a Hugging Face token with LTX model access before starting a GPU")
+                _validate_hf_token(hf_token)
 
             gpu = str(payload.get("gpu") or "").strip()
             cloud = str(payload.get("cloud") or "").strip().upper()
@@ -998,8 +1002,8 @@ class Handler(BaseHTTPRequestHandler):
             })
             self._json({"ok": True, **STATE, "session_token": result["access_token"]})
         except Exception as exc:
-            # A GraphQL parser rejection cannot have executed the allocation mutation.
-            if str(exc).startswith("Syntax Error:"):
+            # Explicit parser/capacity rejections did not allocate a Pod; ambiguous errors remain journaled.
+            if str(exc).startswith("Syntax Error:") or any(term in str(exc).lower() for term in ("no instances", "no available", "not enough resources", "insufficient capacity")):
                 current = _read_config()
                 current.pop("pending_creation", None)
                 _write_config(current)

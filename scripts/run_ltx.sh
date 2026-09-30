@@ -52,8 +52,7 @@ if [ "$NEED_DOWNLOAD" -eq 1 ]; then
     vae/ltx-2.5-video-vae-bf16.safetensors \
     vae/ltx-2.5-audio-vae-bf16.safetensors \
     latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors \
-    --local-dir "$LTX_MODELS" \
-    --token "$HF_TOKEN"
+    --local-dir "$LTX_MODELS"
 fi
 
 FRAMES=$(( UGC_DURATION * 24 + 1 ))

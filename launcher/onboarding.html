@@ -199,7 +199,7 @@
   <section class="view" id="step2">
     <p class="eyebrow">Step 2 of 4</p>
     <h1>Choose a GPU.</h1>
-    <p class="lead">These are live Runpod offers suitable for the default LTX-2.5 path. 48 GB VRAM is recommended for the first production test.</p>
+    <p class="lead">These are live Runpod offers suitable for the default LTX-2.5 path. At least 48 GB VRAM and 128 GB system RAM are requested for LTX. Model weights download on first use.</p>
 
     <div class="filters">
       <div class="filter-box">
@@ -259,6 +259,7 @@
       <div class="field">
         <label>Maximum session</label>
         <div class="hours">
+          <button class="hour" data-hours="0.5">30 minutes</button>
           <button class="hour selected" data-hours="1">1 hour</button>
           <button class="hour" data-hours="3">3 hours</button>
           <button class="hour" data-hours="5">5 hours</button>
@@ -357,14 +358,15 @@ async function post(path,body={}){
 }
 
 function go(step){
-  document.querySelectorAll(".view").forEach(el=>el.classList.remove("active"));
-  $("#step"+step).classList.add("active");
+  const target=$("#step"+step);
+  const changed=!target.classList.contains("active");
+  document.querySelectorAll(".view").forEach(el=>el.classList.toggle("active",el===target));
   document.querySelectorAll(".progress-item").forEach(el=>{
     const value=Number(el.dataset.step);
     el.classList.toggle("active",value===step);
     el.classList.toggle("done",value<step);
   });
-  window.scrollTo({top:0,behavior:"smooth"});
+  if(changed) window.scrollTo({top:0,behavior:"instant"});
 }
 
 function stockLabel(stock){

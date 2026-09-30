@@ -390,10 +390,11 @@ function drawJobs(jobs) {
   $('#queueBadge').textContent = String(active.length);
   $('#queueBadge').classList.toggle('hidden', active.length === 0);
 
+  const openLogs = new Set([...document.querySelectorAll('.queue-log[open]')].map(el => el.dataset.jobId));
   $('#queue').innerHTML = active.length
     ? active.map(job => {
         const log = job.live_log
-          ? '<details class="queue-log"><summary>Live log</summary><pre>' + esc(job.live_log) + '</pre></details>'
+          ? '<details class="queue-log" data-job-id="' + esc(job.id) + '"' + (openLogs.has(job.id) ? ' open' : '') + '><summary>Live log</summary><pre>' + esc(job.live_log) + '</pre></details>'
           : '';
         return '<div class="queue-item">' +
           '<div class="queue-main">' +

@@ -391,7 +391,8 @@ def test_http_duplicate_launch_gate_and_startup_end(tmp_path, monkeypatch):
     monkeypatch.setattr(onboarding, 'STATE', {'launching':False, 'pod_id':'', 'error':''})
     monkeypatch.setattr(onboarding, 'lifecycle_test_enabled', lambda:False)
     monkeypatch.setattr(settings, 'h3_enabled', False)
-    onboarding._write_config({'runpod_api_key':'fake'})
+    onboarding._write_config({'runpod_api_key':'fake','hf_token':'fake'})
+    monkeypatch.setattr(onboarding,'_validate_hf_token',lambda _:None)
     live=[]
     monkeypatch.setattr(onboarding.runpod, 'get_pods', lambda **_:list(live))
     monkeypatch.setattr(onboarding, '_discover_gpu_offers', lambda _:[{'gpu_id':'testgpu','cloud':'COMMUNITY','price_per_hour':0.1,'vram_gb':24}])
@@ -431,3 +432,38 @@ def test_http_duplicate_launch_gate_and_startup_end(tmp_path, monkeypatch):
         assert 'active_session' not in onboarding._read_config()
     finally:
         server.shutdown();server.server_close();thread.join(timeout=2)
+
+
+def test_ltx_command_uses_valid_two_stage_resolution(tmp_path, monkeypatch):
+    import os, subprocess
+    names=['diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors',
+           'text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors',
+           'vae/ltx-2.5-video-vae-bf16.safetensors','vae/ltx-2.5-audio-vae-bf16.safetensors',
+           'latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors']
+    for name in names:
+        path=tmp_path/'models'/'LTX-2.5'/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_bytes(b'fixture')
+    bindir=tmp_path/'bin';bindir.mkdir()
+    fake=bindir/'python'
+    fake.write_text(f'#!{sys.executable}\nimport sys,json,os\nif "-m" in sys.argv: open(os.environ["CAPTURE"],"w").write(json.dumps(sys.argv))\n')
+    fake.chmod(0o755)
+    capture=tmp_path/'args.json'
+    env={**os.environ,'PATH':str(bindir)+os.pathsep+os.environ['PATH'],'MODEL_ROOT':str(tmp_path/'models'),
+         'UGC_OUTPUT':str(tmp_path/'out.mp4'),'UGC_PROMPT':'test','UGC_DURATION':'4','UGC_SEED':'1',
+         'UGC_START_FRAME':'start.png','UGC_END_FRAME':'end.png','CAPTURE':str(capture)}
+    subprocess.run(['bash','scripts/run_ltx.sh'],env=env,check=True,capture_output=True)
+    args=json.loads(capture.read_text())
+    assert int(args[args.index('--width')+1]) % 64 == 0
+    assert int(args[args.index('--height')+1]) % 64 == 0
+    assert args[args.index('--num-frames')+1]=='97'
+    assert args[-4:]==['--image','end.png','96','1.0']
+
+
+def test_real_legacy_launch_reserves_host_memory(monkeypatch):
+    import runpod_launcher
+    monkeypatch.delenv('UGC_LIFECYCLE_TEST',raising=False)
+    create=Mock(return_value={'id':'fakepod'})
+    monkeypatch.setattr(runpod_launcher.runpod,'create_pod',create)
+    runpod_launcher.launch_pod(api_key='fake',image='fake',gpu='NVIDIA L40',cloud='COMMUNITY')
+    assert create.call_args.kwargs['min_memory_in_gb']==128
+    assert create.call_args.kwargs['min_vcpu_count']==8
+    assert create.call_args.kwargs['env']['UGC_RENDERER_MODE']=='real'
