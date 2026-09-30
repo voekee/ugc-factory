@@ -1,7 +1,7 @@
 # Product validation evidence — 2026-09-30
 
 Work performed in `/Users/josh/ugc-factory`, branch `codex/h3-session-safety`.
-This pass is **partially complete**: real Safari operation and two real Pod lifecycles were performed, but the Mac locked before all requested browser checks could finish. No H3 authorization was recorded or inferred. No H3 weights were downloaded or executed.
+The core session pass is **complete for LTX on the tested L40**: real Safari operation, three real Pod lifecycles, and one genuine LTX render/playback/download/archive were performed. This does not establish every GPU/model combination. The Mac lock interrupted the first pass; browser work later resumed. No H3 authorization was recorded or inferred. No H3 weights were downloaded or executed.
 
 ## A. Computer Use verified
 
@@ -49,7 +49,7 @@ Final cleanup check at **03:45:04 UTC**: zero `ugc-factory-*` Pods, no active se
 
 ## C. Automated test verified
 
-**36 pytest tests passed**, with one upstream Starlette/httpx deprecation warning. Python compilation, both JavaScript syntax checks, shell syntax, and `git diff --check` passed.
+**38 pytest tests passed**, with one upstream Starlette/httpx deprecation warning. Python compilation, both JavaScript syntax checks, shell syntax, and `git diff --check` passed.
 
 Coverage includes image decoding/aspect checks, atomic batches/claims, queue cancellation, interrupted-job recovery and explicit retry, command timeout, mocked H3 asynchronous request/download contracts, first/last keyframe indices 0 and -1, license gates, verified-deletion retries, archive persistence/acknowledgment, orphan recovery and hard-cap behavior.
 
@@ -59,12 +59,33 @@ These tests do not replace the live evidence above. H3 is **CONTRACT VERIFIED**,
 
 ## D. Not yet verified
 
-- Retry recovery through visible Safari UI; the CPU failure was submitted, but the Mac locked before observing and retrying the failure card.
-- Explicit End Frame removal, every alternate legacy model configuration, and exhaustive invalid quantity/configuration paths through Safari.
-- A completed render on a real Pod → local archive → Safari playback/download → graceful end. The second Pod's idle timer won the race with manual fixture entry. No third Pod was started after Computer Use became unavailable.
-- Any real allowed model inference. The legacy image stages large model assets; this pass deliberately avoided those downloads and costs.
+- CPU-only Retry was subsequently exercised in Safari: the failed job completed and displayed playback/download controls after Retry.
+- Every alternate legacy model configuration and exhaustive invalid quantity/configuration paths through Safari remain unverified. End Frame upload/removal was subsequently exercised in Safari.
+- Alternate GPU types and Wan/SkyReels real inference remain unverified. The complete L40/LTX flow was subsequently verified below.
+- Real LTX Start + End Frame fidelity and sustained throughput remain unverified; one Start Frame real render succeeded.
 - Real H3 inference, Start + End Frame fidelity, generation time, throughput, GPU utilization during inference, cost per output, audio quality, Ref2VA, and production readiness.
 - H3 candidate Docker image build, CUDA/SGLang compatibility and authorized GPU smoke test.
 - Final visual recheck of the last small message/cost/recovery fixes after the lock. Their syntax and regression checks passed; that is not visual verification.
 
 The launcher guardian still depends on the local launcher process remaining alive. The in-Pod watchdog is a second defense once the application starts; neither substitutes for an always-on external controller if the Mac is off and the container cannot boot.
+
+## Resumed real renderer pass
+
+- Safari selected NVIDIA L40 Community at the API-reported $0.69/hour, a 30-minute hard limit, and the immutable branch image `ghcr.io/voekee/ugc-factory@sha256:b12d048f5ecbb324285071482e091edbcc592ab9b7622cef6371786de6146b67`. Main's latest image was not changed.
+- Pre-create timestamp: 03:56:12 UTC. Fresh RunPod listing at 03:56:34.669 UTC confirmed `medgy03486xot8` (`ugc-factory-a90b9a71`) RUNNING, NVIDIA L40, 151 GB host RAM, 9 vCPUs, $0.69/hour.
+- This session uses `UGC_RENDERER_MODE=real`, no synthetic lifecycle bootstrap. Safari opened and authenticated to its health-confirmed workspace.
+- Safari uploaded a generated test illustration `product.png` (768×1280), entered a camera-motion prompt, selected four seconds and one output, and clicked Generate. Job `e7d89e4baaf44655aa8be2a2dccca686` entered model download. The worker reports Torch 2.9.1 CUDA 12.8 and NVIDIA L40 with CUDA available.
+- Refreshing Safari during model download recovered the same one active job and runtime/cost display. Draft file inputs reset on refresh; the submitted job remains persisted.
+- Preflight now requires valid Hugging Face model access before paid legacy allocation, at least 48 GB VRAM, 128 GB host RAM and eight vCPUs. LTX two-stage dimensions corrected to 768×1280 (multiples of 64). Final output remains 720×1280.
+- Found and fixed queue live-log expansion resetting each poll; this fix is local source validation until the next worker image is built. Launcher step switching now avoids removing/readding the same active view and repeated smooth scrolling.
+
+### Real render outcome and final cleanup
+
+- The real LTX job completed at **04:08:51.962 UTC**, following submission at 04:00:14.168 UTC (about 8m38s including first-use downloads). Logs confirmed real CUDA denoising, upsampling and video/audio decoding.
+- Safari showed the completed result, played it (Pause control observed), downloaded it after the normal site download prompt, and clicked End session.
+- Safari download: `/Users/josh/Downloads/Validation-ltx25-4s-e7d89e4b.mp4`, 308,276 bytes. ffprobe confirms H.264 video, 720×1280, AAC audio, 4.041667 seconds.
+- Guardian archive: `~/.ugc-factory/sessions/medgy03486xot8/e7d89e4baaf44655aa8be2a2dccca686.mp4`, same byte size, with metadata and archival acknowledgment marker. Safari's Saved videos on this Mac showed the archived download after termination.
+- Guardian verified real termination at **04:09:43.213 UTC**. Independent fresh RunPod query at **04:09:57.628 UTC** confirmed exact ID `medgy03486xot8` absent and **zero `ugc-factory-*` Pods**. Safari refresh showed “GPU TERMINATED · verified with RunPod”.
+- Tracked session duration 13m21s × $0.69/hour ≈ **$0.154 estimated compute**. This is not a billing invoice and excludes storage or other provider charges. No extra Pod was created for inference.
+- The final minor UI/token-handling fixes were built successfully in workflow `36667325771`, image digest `sha256:efe617884b42c53e3e5c6fd7c865969a987299d50de0c347b2a2fc77e01465e0`. Launcher defaults and this Mac's saved image are pinned to it. That final image build is verified; the live inference used the preceding b12d digest.
+- Normal idle timeout remains 600 seconds. Local CPU fixture was stopped. No H3 model was loaded or authorized.

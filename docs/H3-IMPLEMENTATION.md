@@ -44,7 +44,7 @@ These were infrastructure tests using the actual application with its explicitly
 
 ## Local checks
 
-36 tests passed locally. Python compilation, both JavaScript syntax checks, shell syntax, and Git whitespace checks passed. Browser inspection confirmed H3 generation is disabled without authorization and the mobile composer fits its viewport.
+38 tests passed locally. Python compilation, both JavaScript syntax checks, shell syntax, and Git whitespace checks passed. Browser inspection confirmed H3 generation is disabled without authorization and the mobile composer fits its viewport.
 
 ```sh
 uv pip install --python .venv/bin/python -r requirements-dev.txt
