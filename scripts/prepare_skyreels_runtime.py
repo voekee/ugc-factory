@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.run_skyreels_resident import CODE_REVISION, MODEL_REVISION, RUNTIME_FILE
 
-root = Path('/opt/ugc-models/SkyReels-V3/skyreels_v3')
+root = Path('/opt/ugc-models/SkyReels-Reference/skyreels_v3')
 # Upstream package initializers eagerly import unused avatar/extension pipelines.
 # Narrow only their exports; retain the unmodified official reference transformer,
 # pipeline, scheduler, SDPA attention and license. No FlashAttention installation.

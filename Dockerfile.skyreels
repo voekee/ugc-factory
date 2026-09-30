@@ -4,15 +4,15 @@ WORKDIR /app
 COPY app ./app
 COPY static ./static
 COPY scripts ./scripts
-RUN git clone --no-checkout --filter=blob:none https://github.com/SkyworkAI/SkyReels-V3.git /opt/ugc-models/SkyReels-V3 \
-    && git -C /opt/ugc-models/SkyReels-V3 fetch --depth 1 origin 28c771e8456341be6a213e3d1133ed1fd19bf75d \
-    && git -C /opt/ugc-models/SkyReels-V3 checkout --detach -q 28c771e8456341be6a213e3d1133ed1fd19bf75d \
+RUN git clone --no-checkout --filter=blob:none https://github.com/SkyworkAI/SkyReels-V3.git /opt/ugc-models/SkyReels-Reference \
+    && git -C /opt/ugc-models/SkyReels-Reference fetch --depth 1 origin 28c771e8456341be6a213e3d1133ed1fd19bf75d \
+    && git -C /opt/ugc-models/SkyReels-Reference checkout --detach -q 28c771e8456341be6a213e3d1133ed1fd19bf75d \
     && uv venv --seed --system-site-packages /opt/skyreels-venv --python python3 \
     && /opt/skyreels-venv/bin/python -m pip install --no-cache-dir \
        diffusers==0.34.0 transformers==4.53.2 tokenizers==0.21.4 peft==0.17.1 \
        accelerate==1.8.1 huggingface-hub==0.34.4 ftfy==6.3.1 \
        imageio==2.37.0 imageio-ffmpeg==0.6.0 av==16.0.1 sentencepiece==0.2.1 \
     && python /app/scripts/prepare_skyreels_runtime.py \
-    && PYTHONPATH=/opt/ugc-models/SkyReels-V3 /opt/skyreels-venv/bin/python -c "from skyreels_v3.pipelines import ReferenceToVideoPipeline; import torch; assert torch.version.cuda == '12.8'; print('SkyReels reference runtime imports successfully; weights not downloaded')"
+    && PYTHONPATH=/opt/ugc-models/SkyReels-Reference /opt/skyreels-venv/bin/python -c "from skyreels_v3.pipelines import ReferenceToVideoPipeline; import torch; assert torch.version.cuda == '12.8'; print('SkyReels reference runtime imports successfully; weights not downloaded')"
 LABEL org.ugc-factory.skyreels-revision="28c771e8456341be6a213e3d1133ed1fd19bf75d"
 CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--workers","1"]
