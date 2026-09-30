@@ -68,6 +68,7 @@ def init_db() -> None:
             "started_at": "TEXT", "finished_at": "TEXT", "render_seconds": "REAL",
             "encode_seconds": "REAL", "original_prompt": "TEXT", "retry_count": "INTEGER DEFAULT 0",
             "audio": "INTEGER DEFAULT 1", "profile": "TEXT", "engine_job_id": "TEXT",
+            "reference_frames": "TEXT DEFAULT '[]'",
         }.items():
             if name not in columns:
                 con.execute(f"ALTER TABLE jobs ADD COLUMN {name} {kind}")
@@ -89,12 +90,13 @@ def create_jobs(jobs: list[dict[str, Any]]) -> None:
         for job in jobs:
             row = {**job, "created_at": now, "updated_at": now,
                    "original_prompt": job.get("original_prompt", job["prompt"]),
-                   "audio": int(job.get("audio", True)), "profile": job.get("profile")}
+                   "audio": int(job.get("audio", True)), "profile": job.get("profile"),
+                   "reference_frames": json.dumps(job.get("reference_frames", []))}
             con.execute("""INSERT INTO jobs
                 (id,batch_id,owner,renderer,prompt,duration,seed,start_frame,end_frame,
-                 status,created_at,updated_at,original_prompt,audio,profile)
+                 status,created_at,updated_at,original_prompt,audio,profile,reference_frames)
                 VALUES (:id,:batch_id,:owner,:renderer,:prompt,:duration,:seed,:start_frame,:end_frame,
-                        :status,:created_at,:updated_at,:original_prompt,:audio,:profile)""", row)
+                        :status,:created_at,:updated_at,:original_prompt,:audio,:profile,:reference_frames)""", row)
         con.execute("INSERT INTO kv(key,value) VALUES('idle_since', 'null') ON CONFLICT(key) DO UPDATE SET value='null'")
         con.commit()
 

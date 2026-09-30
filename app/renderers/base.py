@@ -14,6 +14,7 @@ class RenderRequest:
     start_frame: Path | None
     end_frame: Path | None
     output_path: Path
+    reference_frames: tuple[Path, ...] = ()
 
 
 class Renderer(ABC):

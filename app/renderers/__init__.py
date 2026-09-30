@@ -16,6 +16,9 @@ def get_renderer(renderer_id: str):
     if renderer_id == "wan22" and settings.wan_runner_cmd == "bash scripts/run_wan.sh":
         from app.renderers.wan import wan_renderer
         return wan_renderer
+    if renderer_id == "skyreelsv3" and settings.skyreels_runner_cmd == "bash scripts/run_skyreels.sh":
+        from app.renderers.skyreels import skyreels_renderer
+        return skyreels_renderer
     commands = {
         "ltx25": settings.ltx_runner_cmd,
         "wan22": settings.wan_runner_cmd,

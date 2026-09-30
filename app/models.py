@@ -28,6 +28,7 @@ class RendererCapabilities:
     aspect_ratio: str = "9:16"
     notes: str = ""
     requires_start_frame: bool = True
+    max_reference_images: int = 1
 
     def dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -49,7 +50,7 @@ RENDERERS: dict[str, RendererCapabilities] = {
         supports_end_frame=True,
         supports_audio=True,
         supported_durations=list(range(4, 11)),
-        notes="Default engine. End frame is native. Fastest starting point; first use downloads the LTX weights.",
+        notes="Native keyframes and audio. Separate LTX session and model access required. Speed and product fidelity have not been compared with Wan on this GPU.",
     ),
     "wan22": RendererCapabilities(
         id="wan22",
@@ -71,6 +72,7 @@ RENDERERS: dict[str, RendererCapabilities] = {
         supports_end_frame=False,
         supports_audio=False,
         supported_durations=[5],
-        notes="V1 uses the official 5-second 720p reference-to-video path and Python 3.12 runtime.",
+        max_reference_images=4,
+        notes="1–4 product, person or scene references; 5 seconds at 24 FPS. References are not exact keyframes. Requires a dedicated SkyReels session with its prepared runtime. Product/logo fidelity and speed need a live benchmark.",
     ),
 }

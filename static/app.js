@@ -18,8 +18,11 @@ let duration = 4;
 let selected = new Set();
 let startFile = null;
 let endFile = null;
+let referenceFiles = [];
+let referenceUrls = [];
 let sessionEnding = false;
 let refreshing = false;
+let submitting = false;
 let lastJobsSnapshot = "";
 
 async function api(path, opts = {}) {
@@ -173,6 +176,38 @@ async function boot() {
 
   bindFrame('start');
   bindFrame('end');
+  $('#referenceChoose').onclick = () => $('#referenceFiles').click();
+  $('#referenceFiles').onchange = async () => {
+    const incoming = Array.from($('#referenceFiles').files || []);
+    $('#referenceFiles').value = '';
+    if (incoming.length + referenceFiles.length > 3) {
+      $('#formError').textContent = 'Use up to four references in total, including the first image.';
+      return;
+    }
+    try {
+      for (const file of incoming) {
+        if (!['image/png','image/jpeg','image/webp'].includes(file.type)) throw new Error('Please use PNG, JPG or WEBP references.');
+        if (file.size > 30 * 1024 * 1024) throw new Error('Each reference must be smaller than 30 MB.');
+        await new Promise((resolve, reject) => {
+          const image = new Image();
+          const url = URL.createObjectURL(file);
+          image.onload = () => { URL.revokeObjectURL(url); resolve(); };
+          image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('This reference image could not be decoded.')); };
+          image.src = url;
+        });
+      }
+      referenceFiles.push(...incoming);
+      drawReferences();
+      $('#formError').textContent = '';
+    } catch (error) { $('#formError').textContent = error.message; }
+  };
+  $('#productScene').onchange = () => {
+    const prompts = {
+      installation: 'Photorealistic handheld close-up inside an open car door. One adult hand brings the exact compact black product shown in the reference toward its mounting position, aligns it carefully and presses it gently into place. One simple continuous action, physically plausible finger contact, unchanged product proportions and surface details. Natural phone-camera movement, realistic daylight, no cuts or added text.',
+      projection: 'Photorealistic product demonstration at dusk beside an open car door. The compact projector shown in the reference is fixed securely to the lower inside of the door. Its light projects the exact circular blue logo from the reference onto textured paving stones. A gentle continuous phone-camera tilt reveals the projection. Stable lighting and perspective, preserve the product shape and logo details, no additional text or scene changes.'
+    };
+    if (prompts[$('#productScene').value]) $('#prompt').value = prompts[$('#productScene').value];
+  };
 
   $('#variations').value = '1';
   $('#variationMinus').onclick = () => setVariations(Number($('#variations').value) - 1);
@@ -200,6 +235,18 @@ function setVariations(value) {
 function updateGenerateLabel() {
   const count = Math.max(1, Number($('#variations').value || 1));
   $('#generate').textContent = count === 1 ? 'Generate' : 'Generate × ' + count;
+}
+
+function drawReferences() {
+  referenceUrls.forEach(url => URL.revokeObjectURL(url));
+  referenceUrls = referenceFiles.map(file => URL.createObjectURL(file));
+  $('#referencePreviews').innerHTML = referenceFiles.map((file, index) =>
+    '<div class="reference-tile"><img src="' + referenceUrls[index] + '" alt="Reference ' + (index + 2) + '" />' +
+    '<span>' + (index + 2) + ' · ' + esc(file.name) + '</span><button type="button" class="reference-remove" data-index="' + index + '" aria-label="Remove reference ' + (index + 2) + '">Remove</button></div>').join('');
+  document.querySelectorAll('.reference-remove').forEach(button => {
+    button.onclick = () => { referenceFiles.splice(Number(button.dataset.index), 1); drawReferences(); };
+  });
+  $('#referenceChoose').disabled = referenceFiles.length >= 3;
 }
 
 function drawRenderers() {
@@ -232,11 +279,14 @@ function applyRenderer() {
   }
 
   $('#rendererNote').textContent = renderer.unavailable_reason || renderer.notes;
-  $('#generate').disabled = renderer.available === false || sessionEnding;
-  $('.format-label').textContent = renderer.id === 'h3-fl2va' ? 'Source aspect · 768p' : '9:16 · 720p';
+  $('#generate').disabled = renderer.available === false || sessionEnding || submitting;
+  $('.format-label').textContent = renderer.id === 'h3-fl2va' ? 'Source aspect · 768p' : renderer.id === 'skyreelsv3' ? 'Reference aspect · 720p · 24 FPS' : '9:16 · 720p';
+  $('#referenceWrap').classList.toggle('hidden', !(renderer.max_reference_images > 1));
+  $('#startFrameLabel').textContent = renderer.max_reference_images > 1 ? 'Reference 1 · output shape' : 'Start frame';
   if (!startFile) $('#startFrameMeta').textContent = renderer.requires_start_frame ? 'PNG, JPG or WEBP · required' : 'PNG, JPG or WEBP · optional';
 
   const endWrap = $('#endFrameWrap');
+  endWrap.classList.toggle('hidden', renderer.max_reference_images > 1);
   const endChoose = $('#endChoose');
   $('#endFrame').disabled = !renderer.supports_end_frame;
   endChoose.disabled = !renderer.supports_end_frame;
@@ -273,6 +323,7 @@ $('#owner').onchange = () => {
 };
 
 $('#generate').onclick = async () => {
+  if (submitting || sessionEnding || renderer?.available === false) return;
   const button = $('#generate');
   $('#formError').textContent = '';
 
@@ -301,6 +352,7 @@ $('#generate').onclick = async () => {
     return;
   }
 
+  submitting = true;
   button.disabled = true;
   button.textContent = 'Preparing…';
 
@@ -320,6 +372,7 @@ $('#generate').onclick = async () => {
       variations: Number($('#variations').value || 1),
       start_frame_data_url: values[0],
       end_frame_data_url: values[1],
+      reference_frame_data_urls: renderer.max_reference_images > 1 ? await Promise.all(referenceFiles.map(fileToDataUrl)) : [],
     };
 
     await api('/api/jobs-json', {
@@ -334,6 +387,7 @@ $('#generate').onclick = async () => {
   } catch (error) {
     $('#formError').textContent = error.message;
   } finally {
+    submitting = false;
     button.disabled = sessionEnding || renderer.available === false;
     updateGenerateLabel();
   }
@@ -363,7 +417,7 @@ async function refresh() {
       lastJobsSnapshot = snapshot;
     }
     sessionEnding = ['ending', 'terminated'].includes(sessionResponse.state);
-    $('#generate').disabled = sessionEnding || renderer?.available === false;
+    $('#generate').disabled = sessionEnding || renderer?.available === false || submitting;
 
     const currentJob = jobsResponse.jobs.find(job => ['rendering', 'cleaning'].includes(job.status));
     const sessionLabel = sessionEnding ? 'ENDING SESSION' :

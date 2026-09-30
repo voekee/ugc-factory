@@ -76,6 +76,7 @@ class JsonJobRequest(BaseModel):
     variations: int = Field(ge=1, le=100)
     start_frame_data_url: str | None = None
     end_frame_data_url: str | None = None
+    reference_frame_data_urls: list[str] = Field(default_factory=list, max_length=3)
     audio: bool = True
 
 
@@ -126,6 +127,7 @@ def _create_job_records(
     start_path: str | None,
     end_path: str | None,
     audio: bool = True,
+    reference_paths: list[str] | None = None,
 ) -> dict:
     if db.get_kv("session_state") in {"ending", "terminated"}:
         raise HTTPException(409, "Session is ending; new jobs are disabled")
@@ -147,6 +149,9 @@ def _create_job_records(
         raise HTTPException(400, "Prompt must contain 1–16000 characters")
     if renderer not in RENDERERS:
         raise HTTPException(400, "Unknown renderer")
+    reason = renderer_unavailable_reason(renderer)
+    if reason:
+        raise HTTPException(409, reason)
 
     caps = RENDERERS[renderer]
     if duration not in caps.supported_durations:
@@ -157,6 +162,9 @@ def _create_job_records(
         raise HTTPException(400, "Start/reference frame is required for this model")
     if end_path and not caps.supports_end_frame:
         raise HTTPException(400, f"{caps.name} does not support a native end frame in V1")
+    reference_paths = reference_paths or []
+    if len(reference_paths) + bool(start_path) > caps.max_reference_images:
+        raise HTTPException(400, f"{caps.name} supports at most {caps.max_reference_images} reference image(s)")
 
     try:
         validate_pair(start_path, end_path)
@@ -179,6 +187,7 @@ def _create_job_records(
             "seed": random.randint(0, 2_147_483_647),
             "start_frame": start_path,
             "end_frame": end_path,
+            "reference_frames": reference_paths,
             "status": JobStatus.QUEUED.value,
             "audio": audio,
             "profile": settings.h3_profile if renderer == "h3-fl2va" else None,
@@ -204,9 +213,25 @@ def health() -> dict:
 @app.get("/api/renderers", dependencies=[])
 def renderers(x_access_token: str | None = Header(default=None)) -> dict:
     _check_auth(x_access_token)
-    return {"renderers": [{**r.dict(), "available": not gate_reason() if r.id == "h3-fl2va" else (settings.session_model == "legacy" or settings.session_model == r.id),
-                           "unavailable_reason": gate_reason() if r.id == "h3-fl2va" else ("This model is not selected for this session" if settings.session_model not in {"legacy", r.id} else None)}
+    return {"renderers": [{**r.dict(), "available": not renderer_unavailable_reason(r.id),
+                           "unavailable_reason": renderer_unavailable_reason(r.id)}
                           for r in RENDERERS.values()]}
+
+
+def renderer_unavailable_reason(renderer_id):
+    if renderer_id == "h3-fl2va":
+        return gate_reason()
+    if settings.ugc_renderer_mode.lower() == "mock":
+        return None
+    if settings.session_model not in {"legacy", renderer_id}:
+        return "This model is not selected for this session"
+    if renderer_id == "skyreelsv3":
+        if settings.session_model != renderer_id:
+            return "Start a dedicated SkyReels session to use product and scene references"
+        from scripts.run_skyreels_resident import runtime_ready
+        if not runtime_ready():
+            return "SkyReels runtime is not prepared. End this session and update the worker image."
+    return None
 
 
 def _read_job_log(job_id: str, max_chars: int = 5000) -> str:
@@ -234,7 +259,13 @@ def _job_phase(job: dict) -> tuple[str, str]:
 
     if job["renderer"] == "h3-fl2va":
         return "Generating", "The resident H3 pipeline is processing this video and audio request"
-    log = _read_job_log(job["id"], max_chars=100000 if job["renderer"] == "wan22" else 5000)
+    log = _read_job_log(job["id"], max_chars=100000 if job["renderer"] in {"wan22", "skyreelsv3"} else 5000)
+    if job["renderer"] == "skyreelsv3":
+        if "[SKYREELS] Generating" in log:
+            return "Generating", "SkyReels is generating a new scene from your reference images"
+        if "[SKYREELS] Loading" in log:
+            return "Loading model", "Loading the reference model; generation has not started"
+        return "Downloading / checking model", "First use downloads SkyReels weights; later videos reuse the loaded model"
     if job["renderer"] == "wan22":
         if "[WAN] Encoding video" in log:
             return "Encoding video", "Saving the generated frames as MP4"
@@ -290,6 +321,9 @@ def create_jobs_json(
     batch_id = uuid.uuid4().hex[:12]
     start_path = _save_data_url(payload.start_frame_data_url, batch_id, "start")
     end_path = _save_data_url(payload.end_frame_data_url, batch_id, "end")
+    reference_paths = [_save_data_url(value, batch_id, "reference") for value in payload.reference_frame_data_urls]
+    if any(not path for path in reference_paths):
+        raise HTTPException(400, "Reference images cannot be empty")
 
     return _create_job_records(
         owner=payload.owner,
@@ -300,6 +334,7 @@ def create_jobs_json(
         start_path=start_path,
         end_path=end_path,
         audio=payload.audio,
+        reference_paths=reference_paths,
     )
 
 
@@ -313,14 +348,20 @@ async def create_jobs(
     audio: bool = Form(True),
     start_frame: UploadFile | None = File(default=None),
     end_frame: UploadFile | None = File(default=None),
+    reference_frames: list[UploadFile] | None = File(default=None),
     x_access_token: str | None = Header(default=None),
 ) -> dict:
     _check_auth(x_access_token)
+    if len(reference_frames or []) > 3:
+        raise HTTPException(400, "Add at most three extra reference images")
     batch_id = uuid.uuid4().hex[:12]
     start_path = await _save_upload(start_frame, batch_id, "start")
     end_path = await _save_upload(end_frame, batch_id, "end")
+    reference_paths = [await _save_upload(upload, batch_id, "reference") for upload in (reference_frames or [])]
+    if any(not path for path in reference_paths):
+        raise HTTPException(400, "Reference images cannot be empty")
     return _create_job_records(owner=owner, renderer=renderer, prompt=prompt, duration=duration,
-        variations=variations, start_path=start_path, end_path=end_path, audio=audio)
+        variations=variations, start_path=start_path, end_path=end_path, audio=audio, reference_paths=reference_paths)
 
 
 

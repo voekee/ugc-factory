@@ -76,7 +76,7 @@
               <img id="startPreview" class="frame-preview hidden" alt="" />
               <div class="frame-content">
                 <span class="frame-plus">＋</span>
-                <strong>Start frame</strong>
+                <strong id="startFrameLabel">Start frame</strong>
                 <small id="startFrameMeta">PNG, JPG or WEBP · required</small>
                 <button id="startChoose" type="button" class="frame-choose">Choose image</button>
                 <button id="startRemove" type="button" class="frame-choose">Remove</button>
@@ -94,6 +94,12 @@
               </div>
             </div>
           </div>
+          <section id="referenceWrap" class="reference-section hidden" aria-label="Additional references">
+            <div class="reference-heading"><div><strong>Product and scene references</strong><p>The first image sets the output shape. Add up to three more views of the product, person or setting.</p></div><button id="referenceChoose" type="button" class="button button-light">Add references</button></div>
+            <input id="referenceFiles" class="hidden" type="file" accept="image/png,image/jpeg,image/webp" multiple />
+            <div id="referencePreviews" class="reference-previews"></div>
+          </section>
+          <div class="product-presets"><label for="productScene">Product scene</label><select id="productScene"><option value="">Write your own prompt</option><option value="installation">Handheld installation</option><option value="projection">Projection reveal</option></select><span>Review hands, product shape and logo detail in each result.</span></div>
           <div class="prompt-shell"><textarea id="prompt" aria-label="Generation prompt" rows="3" placeholder="Describe the motion, action and camera behavior…"></textarea></div>
           <div class="composer-footer">
             <div class="composer-left">
@@ -135,6 +141,6 @@
     </aside>
   </div>
 
-  <script src="/static/app.js?v=wan-lightning-3"></script>
+  <script src="/static/app.js?v=product-reference-4"></script>
 </body>
 </html>

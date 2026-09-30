@@ -21,7 +21,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import runpod
 from runpod.api.graphql import run_graphql_query
 
-from runpod_launcher import launch_pod
+from runpod_launcher import launch_pod, SKYREELS_IMAGE
 from lifecycle_test import enabled as lifecycle_test_enabled
 from guardian import Guardian, archive_outputs, terminate_verified, worker_json
 
@@ -123,6 +123,7 @@ def _public_config() -> dict[str, Any]:
         "hf_saved": bool(saved.get("hf_token")),
         "hf_masked": _mask(str(saved.get("hf_token", ""))),
         "image": saved.get("image", DEFAULTS["image"]),
+        "skyreels_prepared": bool(SKYREELS_IMAGE),
         "hours": float(saved.get("hours", DEFAULTS["hours"])),
         "disk": int(saved.get("disk", DEFAULTS["disk"])),
         "selected_gpu": saved.get("selected_gpu", ""),
@@ -895,7 +896,9 @@ class Handler(BaseHTTPRequestHandler):
             if model == "h3-fl2va":
                 from app.h3 import require_h3
                 require_h3()
-            elif model not in {"legacy", "wan22"}:
+            elif model == "skyreelsv3" and not SKYREELS_IMAGE:
+                raise ValueError("SkyReels runtime is not prepared; no GPU was allocated")
+            elif model not in {"legacy", "wan22", "skyreelsv3"}:
                 raise ValueError("Choose a supported model before starting a session")
 
             runpod_key = str(saved.get("runpod_api_key") or "").strip()
@@ -931,14 +934,16 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Selected GPU is no longer available; refresh GPU choices")
             price = offer["price_per_hour"]
             vram = offer["vram_gb"]
-            if model == "wan22" and vram < 80:
-                raise ValueError("Wan quality requires an 80 GB or larger GPU. Return to GPU selection.")
+            if model in {"wan22", "skyreelsv3"} and vram < 80:
+                raise ValueError("This model requires an 80 GB or larger GPU. Return to GPU selection.")
             if model == "wan22" and disk < 180:
                 raise ValueError("Wan requires at least 180 GB temporary disk for its full model weights")
             if price < 0:
                 raise ValueError("GPU price is invalid.")
 
             image = str(payload.get("image") or saved.get("image") or DEFAULTS["image"]).strip()
+            if model == "skyreelsv3":
+                image = SKYREELS_IMAGE
             if not lifecycle_test_enabled():
                 _check_container_image_pullable(image)
 

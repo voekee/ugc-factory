@@ -4,9 +4,28 @@ import os
 import time
 import sys
 from pathlib import Path
+from collections import OrderedDict
 
 MODEL_ID = 'Wan-AI/Wan2.2-I2V-A14B-Diffusers'
 REVISION = '596658fd9ca6b7b71d5057529bbf319ecbc61d74'
+
+
+class PromptCache:
+    """Small CPU LRU; reuses exact embeddings, never a previous seed or latent."""
+    def __init__(self, capacity=8):
+        self.capacity = capacity
+        self.values = OrderedDict()
+
+    def get(self, key, encode):
+        hit = key in self.values
+        if not hit:
+            # Detach from model state, retain exact dtype, bound CPU memory.
+            self.values[key] = tuple(value.detach().cpu() if value is not None else None
+                                     for value in encode())
+            while len(self.values) > self.capacity:
+                self.values.popitem(last=False)
+        self.values.move_to_end(key)
+        return self.values[key], hit
 
 
 def load_pipeline():
@@ -68,12 +87,29 @@ def generate(pipe, req):
     from PIL import Image, ImageOps
     from diffusers.utils import export_to_video
     started = time.monotonic()
+    torch.cuda.reset_peak_memory_stats()
     with Image.open(req['start_frame']) as source:
         image = ImageOps.fit(source.convert('RGB'), (720,1280), method=Image.Resampling.LANCZOS)
     negative = ('blurry face, waxy skin, plastic skin, distorted face, deformed hands, extra fingers, fused fingers, '
                 'duplicate product, changing bottle shape, changing logo, flickering, jitter, sudden cuts, subtitles, watermark, cartoon, illustration')
     print('[WAN] Generating 720p video: 4 trained Lightning steps, BF16, native attention', flush=True)
-    frames = pipe(image=image, prompt=req['prompt'], negative_prompt=negative,
+    prompt_args = {'prompt': req['prompt'], 'negative_prompt': negative}
+    cache_hit = False
+    if os.environ.get('WAN_PROMPT_CACHE', '1') == '1':
+        if not hasattr(pipe, '_ugc_prompt_cache'):
+            pipe._ugc_prompt_cache = PromptCache()
+        device = pipe._execution_device
+        with torch.inference_mode():
+            embeddings, cache_hit = pipe._ugc_prompt_cache.get((req['prompt'], negative), lambda:
+                pipe.encode_prompt(prompt=req['prompt'], negative_prompt=negative,
+                    do_classifier_free_guidance=False, num_videos_per_prompt=1,
+                    max_sequence_length=512, device=device))
+        prompt_args = {'prompt_embeds': embeddings[0].to(device),
+                       'negative_prompt_embeds': embeddings[1].to(device) if embeddings[1] is not None else None}
+        print('[WAN] Prompt embeddings '+('reused' if cache_hit else 'encoded and cached'), flush=True)
+    torch.cuda.synchronize()
+    prompted = time.monotonic()
+    frames = pipe(image=image, **prompt_args,
                   width=720, height=1280, num_frames=int(req['duration'])*16+1,
                   num_inference_steps=4, guidance_scale=1.0, guidance_scale_2=1.0,
                   generator=torch.Generator(device='cpu').manual_seed(int(req['seed']))).frames[0]
@@ -82,6 +118,7 @@ def generate(pipe, req):
     print('[WAN] Encoding video', flush=True)
     export_to_video(frames, req['output'], fps=16)
     print('[WAN] Timings '+json.dumps({'inference_seconds':round(generated-started,2),
+          'prompt_seconds':round(prompted-started,2), 'prompt_cache_hit':cache_hit,
           'encode_seconds':round(time.monotonic()-generated,2),
           'total_seconds':round(time.monotonic()-started,2),
           'peak_gpu_memory_gb':round(torch.cuda.max_memory_allocated()/2**30,2)}), flush=True)

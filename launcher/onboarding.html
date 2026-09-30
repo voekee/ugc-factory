@@ -255,7 +255,7 @@
         <div id="sessionGpuPrice" class="price"></div>
       </div>
 
-      <div class="field"><label for="sessionModel">Model</label><select id="sessionModel"><option value="wan22">Wan 2.2 Lightning · 80 GB GPU required</option><option value="legacy">LTX-2.5 / other models</option><option value="h3-fl2va">MiniMax H3 — authorization required</option></select><p id="modelGate" role="status"></p></div>
+      <div class="field"><label for="sessionModel">Model</label><select id="sessionModel"><option value="wan22">Wan 2.2 Lightning · fast product variants</option><option value="skyreelsv3">SkyReels V3 · product + scene references · 80 GB GPU required</option><option value="legacy">LTX-2.5 · keyframes + audio</option><option value="h3-fl2va">MiniMax H3 — authorization required</option></select><p id="modelGate" role="status"></p></div>
       <div class="field">
         <label>Maximum session</label>
         <div class="hours">
@@ -694,9 +694,11 @@ async function pollWorkspace(){
 
 $("#sessionModel").onchange=()=>{
   const gated=$("#sessionModel").value==="h3-fl2va";
-  const tooSmall=$("#sessionModel").value==="wan22" && Number(selectedOffer?.vram_gb||0)<80;
-  $("#startSession").disabled=gated||tooSmall;
-  $("#modelGate").textContent=gated?"H3 execution requires deployment authorization. No GPU will be allocated.":tooSmall?"Choose an 80 GB or larger GPU for the Wan quality preset.":"";
+  const model=$("#sessionModel").value;
+  const tooSmall=["wan22","skyreelsv3"].includes(model) && Number(selectedOffer?.vram_gb||0)<80;
+  const unprepared=model==="skyreelsv3" && !bootstrapData?.skyreels_prepared;
+  $("#startSession").disabled=gated||tooSmall||unprepared;
+  $("#modelGate").textContent=gated?"H3 execution requires deployment authorization. No GPU will be allocated.":unprepared?"SkyReels runtime is being prepared. Starting a paid GPU is blocked.":tooSmall?"Choose an 80 GB or larger GPU for this quality preset.":model==="skyreelsv3"?"Five-second videos with up to four references. First use downloads weights; speed and product fidelity must be measured.":"";
 };
 $("#saveCredentials").onclick=saveCredentials;
 $("#refreshGpu").onclick=loadGpus;

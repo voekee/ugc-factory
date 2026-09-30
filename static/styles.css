@@ -21,3 +21,14 @@ button:focus-visible,.frame-drop:focus-visible{outline:2px solid #3c4cba;outline
 .composer-wrap{position:relative;left:auto;right:auto;bottom:auto;padding:24px 0;pointer-events:auto}
 .composer-card{width:min(900px,100%)}
 .media-stage{padding-bottom:0;min-height:320px}
+.reference-section { padding: 16px 20px; border-top: 1px solid #e5e5e5; }
+.reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.reference-heading p { margin: 6px 0; color: #666; font-size: 12px; line-height: 1.5; }
+.reference-previews { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.reference-tile { display: flex; flex-direction: column; width: 140px; gap: 6px; font-size: 12px; }
+.reference-tile img { width: 140px; height: 110px; object-fit: contain; background: #f4f4f4; border-radius: 8px; }
+.reference-tile span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reference-remove { align-self: flex-start; border: 0; background: none; padding: 4px 0; text-decoration: underline; cursor: pointer; }
+.product-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 20px; font-size: 12px; }
+.product-presets select { max-width: 100%; border: 1px solid #ddd; border-radius: 6px; padding: 8px; background: #fff; }
+.product-presets span { color: #666; }

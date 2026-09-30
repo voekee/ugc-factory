@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 import os
+import json
 import shlex
 import subprocess
 import signal
@@ -26,6 +27,7 @@ class CommandRenderer(Renderer):
             "UGC_START_FRAME": str(req.start_frame or ""),
             "UGC_END_FRAME": str(req.end_frame or ""),
             "UGC_OUTPUT": str(req.output_path),
+            "UGC_REFERENCE_FRAMES": json.dumps([str(p) for p in req.reference_frames]),
         })
 
         req.output_path.parent.mkdir(parents=True, exist_ok=True)

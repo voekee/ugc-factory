@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import json
 import time
 from pathlib import Path
 
@@ -39,10 +40,11 @@ def _worker() -> None:
                 start_frame=Path(job["start_frame"]) if job["start_frame"] else None,
                 end_frame=Path(job["end_frame"]) if job["end_frame"] else None,
                 output_path=raw,
+                reference_frames=tuple(Path(p) for p in json.loads(job.get("reference_frames") or "[]")),
             ))
             db.update_job(job["id"], status="cleaning", output_raw=str(raw), render_seconds=time.monotonic()-started)
             encoding = time.monotonic()
-            strip_metadata(raw, clean, preserve_canvas=job["renderer"] == "h3-fl2va", audio=bool(job["audio"]))
+            strip_metadata(raw, clean, preserve_canvas=job["renderer"] in {"h3-fl2va", "skyreelsv3"}, audio=bool(job["audio"]))
             raw.unlink(missing_ok=True)
             db.update_job(job["id"], status="complete", output_raw=None, output_clean=str(clean), error=None, finished_at=db.utcnow(), encode_seconds=time.monotonic()-encoding)
         except Exception as exc:
@@ -69,5 +71,7 @@ def stop_worker() -> None:
     _STOP.set()
     from app.renderers.wan import wan_renderer
     wan_renderer.close()
+    from app.renderers.skyreels import skyreels_renderer
+    skyreels_renderer.close()
     if _THREAD:
         _THREAD.join(timeout=2)

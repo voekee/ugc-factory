@@ -19,6 +19,17 @@ RESULT_PREFIX = "@@WAN_RESULT@@"
 
 class WanRenderer(Renderer):
     id = "wan22"
+    result_prefix = RESULT_PREFIX
+
+    @property
+    def command(self):
+        return settings.wan_runner_cmd
+
+    def payload(self, req):
+        return {"job_id": req.job_id, "prompt": req.prompt,
+                "duration": req.duration, "seed": req.seed,
+                "start_frame": str(req.start_frame) if req.start_frame else None,
+                "output": str(req.output_path)}
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -45,7 +56,7 @@ class WanRenderer(Renderer):
         self.close()
         lines = queue.Queue()
         process = subprocess.Popen(
-            shlex.split(settings.wan_runner_cmd) + ["--resident"],
+            shlex.split(self.command) + ["--resident"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1, start_new_session=True,
         )
@@ -58,7 +69,7 @@ class WanRenderer(Renderer):
             finally:
                 lines.put(None)
 
-        threading.Thread(target=read, name="wan-log", daemon=True).start()
+        threading.Thread(target=read, name=self.id + "-log", daemon=True).start()
 
     def render(self, req: RenderRequest):
         with self._lock:
@@ -68,10 +79,7 @@ class WanRenderer(Renderer):
             tail = deque(maxlen=30)
             try:
                 self._start()
-                payload = {"job_id": req.job_id, "prompt": req.prompt,
-                           "duration": req.duration, "seed": req.seed,
-                           "start_frame": str(req.start_frame) if req.start_frame else None,
-                           "output": str(req.output_path)}
+                payload = self.payload(req)
                 self._process.stdin.write(json.dumps(payload) + "\n")
                 self._process.stdin.flush()
                 deadline = time.monotonic() + settings.render_timeout_seconds
@@ -86,8 +94,8 @@ class WanRenderer(Renderer):
                             raise TimeoutError("Video generation timed out. The model process was reset; you can retry.")
                         if line is None:
                             raise RuntimeError("Video engine stopped unexpectedly. You can retry; the model will reload.")
-                        if line.startswith(RESULT_PREFIX):
-                            result = json.loads(line[len(RESULT_PREFIX):])
+                        if line.startswith(self.result_prefix):
+                            result = json.loads(line[len(self.result_prefix):])
                             if result.get("job_id") != req.job_id:
                                 raise RuntimeError("Video engine response did not match this job. The engine was reset.")
                             if not result.get("ok"):

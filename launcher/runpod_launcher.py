@@ -12,6 +12,9 @@ from urllib.parse import quote
 
 import runpod
 
+# Filled only after the reference runtime builds successfully; never a floating tag.
+SKYREELS_IMAGE = ""
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
@@ -56,9 +59,12 @@ def _create_single_pod(
         h3_env = {name.upper(): str(getattr(settings, name)) for name in (
             "h3_enabled", "h3_license_authorized", "h3_allowed_region", "h3_operator_region",
             "h3_license_mode", "h3_authorization_reference", "h3_profile")}
+    elif model == "skyreelsv3":
+        if not SKYREELS_IMAGE or image != SKYREELS_IMAGE:
+            raise ValueError("SkyReels needs its prepared, pinned worker image before GPU allocation")
     elif model not in {"legacy", "wan22"}:
         raise ValueError("Unknown session model")
-    if model in {"legacy", "wan22"}:
+    if model in {"legacy", "wan22", "skyreelsv3"}:
         from lifecycle_test import enabled
         if not enabled():
             extra.update({"min_memory_in_gb": 160 if model == "wan22" else 128, "min_vcpu_count": 8})
@@ -188,7 +194,7 @@ def launch_pod(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Advanced CLI launcher for an ephemeral UGC Factory Pod")
     parser.add_argument("--image", default=os.getenv("UGC_FACTORY_IMAGE", "ghcr.io/voekee/ugc-factory@sha256:5fded60862880be5e9585f060d746c1b85d6b34ac4b014e37ca61c14b23f4bf9"))
-    parser.add_argument("--model", choices=["legacy", "h3-fl2va"], default="legacy")
+    parser.add_argument("--model", choices=["legacy", "wan22", "skyreelsv3", "h3-fl2va"], default="legacy")
     parser.add_argument("--gpu", default="AUTO")
     parser.add_argument("--cloud", choices=["ALL", "SECURE", "COMMUNITY"], default="ALL")
     parser.add_argument("--hours", type=float, default=5.0)
