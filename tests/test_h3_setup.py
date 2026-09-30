@@ -51,6 +51,13 @@ def test_excluded_deployment_cannot_be_accepted_as_community(tmp_path):
     assert not path.exists()
 
 
+def test_setup_rejects_floating_worker_image_before_saving(tmp_path):
+    path = tmp_path / "h3.env"
+    result = setup(path, "--worker-image", "ghcr.io/test/h3:latest")
+    assert result.returncode != 0
+    assert not path.exists()
+
+
 def test_china_community_gate(monkeypatch):
     for name, value in {"h3_enabled": True, "h3_license_authorized": True,
                         "h3_license_mode": "community", "h3_operator_region": "CN",

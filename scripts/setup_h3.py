@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import sys
 
@@ -59,6 +60,8 @@ def main() -> None:
                 value = value.upper()
                 if value not in ISO_COUNTRIES:
                     parser.error("Countries must be explicit ISO country codes, for example CN")
+            if key == "H3_WORKER_IMAGE" and value and not re.fullmatch(r"[^\s]+@sha256:[a-f0-9]{64}", value):
+                parser.error("Use an actual immutable H3 image digest, not a floating tag")
             values[key] = value
     if args.accept_community_license:
         countries = {values["H3_OPERATOR_REGION"], values["H3_ALLOWED_REGION"]}
@@ -70,6 +73,8 @@ def main() -> None:
         values["H3_ENABLED"] = "false"
         Settings(_env_file=None, **{key.lower(): value for key, value in values.items()})
         save_config(args.config, values)
+    if values["H3_PROFILE"] not in PROFILES:
+        parser.error("Saved H3 hardware profile is invalid")
     profile = PROFILES[values["H3_PROFILE"]]
     pending = []
     if values["H3_LICENSE_AUTHORIZED"].lower() != "true":

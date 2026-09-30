@@ -30,6 +30,8 @@ def check_weights(root: Path) -> dict:
         for path in component.glob("*.safetensors.index.json"):
             try:
                 index = json.loads(path.read_text())
+                if not isinstance(index, dict) or not isinstance(index.get("weight_map"), dict):
+                    raise ValueError("invalid weight map")
                 names = set(index["weight_map"].values())
                 if not names:
                     raise ValueError("empty weight map")
