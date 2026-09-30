@@ -3,14 +3,17 @@
 FROM runpod/pytorch:1.0.3-cu1281-torch291-ubuntu2404
 ARG SGLANG_REV=7b30ff26eea8b593efe00d429eb001ad446c3f2a
 ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 \
+    VIRTUAL_ENV=/opt/h3-venv PATH="/opt/h3-venv/bin:$PATH" \
     HF_HUB_OFFLINE=1 H3_MODEL_PATH=/runpod-volume/models/MiniMax-H3 \
     UGC_RENDERER_MODE=real DATA_DIR=/workspace/ugc-factory-data
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git ca-certificates python3-venv \
     && rm -rf /var/lib/apt/lists/*
+RUN python3 -m venv --system-site-packages "$VIRTUAL_ENV"
 WORKDIR /app
 COPY requirements.txt /tmp/ugc-requirements.txt
-RUN python -m pip install --no-cache-dir -r /tmp/ugc-requirements.txt \
-    && python -m pip install --no-cache-dir "sglang[diffusion] @ git+https://github.com/sgl-project/sglang.git@${SGLANG_REV}#subdirectory=python"
+RUN python -m pip install --no-cache-dir --upgrade pip \
+    && python -m pip install --no-cache-dir -r /tmp/ugc-requirements.txt \
+       "sglang[diffusion] @ git+https://github.com/sgl-project/sglang.git@${SGLANG_REV}#subdirectory=python"
 COPY app ./app
 COPY static ./static
 COPY scripts/serve_h3.py ./scripts/serve_h3.py
