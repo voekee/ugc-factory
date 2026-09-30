@@ -8,3 +8,11 @@ COPY app ./app
 COPY static ./static
 COPY scripts ./scripts
 CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--workers","1"]
+
+# Isolate Wan dependencies from the working LTX runtime. No GPU-time installs.
+RUN uv venv --seed --system-site-packages /opt/wan-venv --python python3 \
+    && /opt/wan-venv/bin/python -m pip install --no-cache-dir \
+       diffusers==0.35.2 transformers==4.57.1 accelerate==1.11.0 \
+       huggingface-hub==0.36.0 sentencepiece==0.2.1 ftfy==6.3.1 \
+       imageio==2.37.0 imageio-ffmpeg==0.6.0 \
+    && /opt/wan-venv/bin/python -c "from diffusers import WanImageToVideoPipeline, AutoencoderKLWan; import torch; assert torch.cuda.is_available() is False; print(torch.__version__)"

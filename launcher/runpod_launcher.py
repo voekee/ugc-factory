@@ -56,12 +56,12 @@ def _create_single_pod(
         h3_env = {name.upper(): str(getattr(settings, name)) for name in (
             "h3_enabled", "h3_license_authorized", "h3_allowed_region", "h3_operator_region",
             "h3_license_mode", "h3_authorization_reference", "h3_profile")}
-    elif model != "legacy":
+    elif model not in {"legacy", "wan22"}:
         raise ValueError("Unknown session model")
-    if model == "legacy":
+    if model in {"legacy", "wan22"}:
         from lifecycle_test import enabled
         if not enabled():
-            extra.update({"min_memory_in_gb": 128, "min_vcpu_count": 8})
+            extra.update({"min_memory_in_gb": 160 if model == "wan22" else 128, "min_vcpu_count": 8})
     runpod.api_key = api_key
     access = secrets.token_urlsafe(18)
     session_name = f"ugc-factory-{secrets.token_hex(4)}"

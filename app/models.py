@@ -60,7 +60,7 @@ RENDERERS: dict[str, RendererCapabilities] = {
         supports_end_frame=False,
         supports_audio=False,
         supported_durations=list(range(4, 11)),
-        notes="End frame is disabled. High first-use download (~126 GB), so use this when you want the Wan look, not as the default spam engine.",
+        notes="Quality preset: full BF16 weights, 40 denoising steps, 720p. Requires 80 GB GPU. First use downloads ~126 GB; repeat jobs reuse weights. Silent video; no native end frame.",
     ),
     "skyreelsv3": RendererCapabilities(
         id="skyreelsv3",

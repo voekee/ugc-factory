@@ -131,6 +131,8 @@ def _create_job_records(
         raise HTTPException(409, "Session is ending; new jobs are disabled")
     if settings.session_model == "h3-fl2va" and renderer != "h3-fl2va":
         raise HTTPException(409, "This session has only the H3 FL2VA family loaded")
+    if settings.session_model == "wan22" and renderer != "wan22":
+        raise HTTPException(409, "This session is configured for Wan quality")
     if renderer == "h3-fl2va":
         if gate_reason():
             raise HTTPException(403, gate_reason())
@@ -202,8 +204,8 @@ def health() -> dict:
 @app.get("/api/renderers", dependencies=[])
 def renderers(x_access_token: str | None = Header(default=None)) -> dict:
     _check_auth(x_access_token)
-    return {"renderers": [{**r.dict(), "available": not gate_reason() if r.id == "h3-fl2va" else settings.session_model == "legacy",
-                           "unavailable_reason": gate_reason() if r.id == "h3-fl2va" else ("This session loads H3 only" if settings.session_model != "legacy" else None)}
+    return {"renderers": [{**r.dict(), "available": not gate_reason() if r.id == "h3-fl2va" else (settings.session_model == "legacy" or settings.session_model == r.id),
+                           "unavailable_reason": gate_reason() if r.id == "h3-fl2va" else ("This model is not selected for this session" if settings.session_model not in {"legacy", r.id} else None)}
                           for r in RENDERERS.values()]}
 
 
@@ -233,6 +235,14 @@ def _job_phase(job: dict) -> tuple[str, str]:
     if job["renderer"] == "h3-fl2va":
         return "Generating", "The resident H3 pipeline is processing this video and audio request"
     log = _read_job_log(job["id"])
+    if job["renderer"] == "wan22":
+        if "[WAN] Encoding video" in log:
+            return "Encoding video", "Saving the generated frames as MP4"
+        if "[WAN] Generating" in log or "%|" in log and "it/s" in log and "Fetching" not in log:
+            return "Generating", "Wan is rendering the video on the GPU"
+        if "[WAN] Loading" in log:
+            return "Loading model", "Moving model weights into memory"
+        return "Downloading / checking model", "First use downloads the full Wan model; later jobs reuse it in this session"
     if "[LTX] Loading model and starting render:" in log:
         return "Loading model / rendering", "The LTX weights are loading into RAM/VRAM and GPU inference is starting"
     if "[LTX] Downloading LTX-2.5 model weights..." in log:

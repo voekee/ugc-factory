@@ -420,6 +420,7 @@ def test_http_duplicate_launch_gate_and_startup_end(tmp_path, monkeypatch):
     try:
         assert post('/api/launch',{**payload,'model':'h3-fl2va'})[0]==400
         assert post('/api/launch',{**payload,'model':'invalid'})[0]==400
+        assert post('/api/launch',{**payload,'model':'wan22','vram':80,'disk':180})[0]==400
         assert allocate.call_count==0
         with ThreadPoolExecutor(max_workers=4) as pool:
             replies=list(pool.map(lambda _:post('/api/launch',payload),range(4)))
@@ -467,3 +468,13 @@ def test_real_legacy_launch_reserves_host_memory(monkeypatch):
     assert create.call_args.kwargs['min_memory_in_gb']==128
     assert create.call_args.kwargs['min_vcpu_count']==8
     assert create.call_args.kwargs['env']['UGC_RENDERER_MODE']=='real'
+
+
+def test_wan_launch_reserves_quality_resources(monkeypatch):
+    import runpod_launcher
+    monkeypatch.delenv('UGC_LIFECYCLE_TEST',raising=False)
+    create=Mock(return_value={'id':'fakepod'})
+    monkeypatch.setattr(runpod_launcher.runpod,'create_pod',create)
+    runpod_launcher.launch_pod(api_key='fake',image='fake',gpu='NVIDIA H100 80GB HBM3',cloud='COMMUNITY',model='wan22')
+    assert create.call_args.kwargs['min_memory_in_gb']==160
+    assert create.call_args.kwargs['env']['SESSION_MODEL']=='wan22'

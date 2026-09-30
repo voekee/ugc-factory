@@ -212,7 +212,7 @@ function drawRenderers() {
     const active = renderer && renderer.id === item.id ? ' active' : '';
     return '<button type="button" class="renderer-card' + active + '" data-id="' + esc(item.id) + '">' +
       '<strong>' + esc(item.name) + (item.available === false ? ' · unavailable' : '') + '</strong>' +
-      '<small>' + esc(item.available === false ? 'Unavailable · authorization required' : item.recommended_for) + '</small>' +
+      '<small>' + esc(item.available === false ? (item.unavailable_reason || 'Unavailable in this session') : item.recommended_for) + '</small>' +
       '</button>';
   }).join('');
 

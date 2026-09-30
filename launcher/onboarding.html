@@ -199,7 +199,7 @@
   <section class="view" id="step2">
     <p class="eyebrow">Step 2 of 4</p>
     <h1>Choose a GPU.</h1>
-    <p class="lead">These are live Runpod offers suitable for the default LTX-2.5 path. At least 48 GB VRAM and 128 GB system RAM are requested for LTX. Model weights download on first use.</p>
+    <p class="lead">Wan quality needs at least 80 GB GPU memory and 160 GB system RAM. LTX needs 48 GB GPU memory. Model weights download on first use; compute is billed during downloads.</p>
 
     <div class="filters">
       <div class="filter-box">
@@ -207,13 +207,13 @@
         <select id="minVram">
           <option value="24">24 GB+</option>
           <option value="32">32 GB+</option>
-          <option value="48" selected>48 GB+ · recommended</option>
-          <option value="80">80 GB+</option>
+          <option value="48">48 GB+ · LTX</option>
+          <option value="80" selected>80 GB+ · Wan quality</option>
         </select>
       </div>
       <div class="filter-box">
         <label>Max price / hour</label>
-        <input id="maxPrice" type="number" min=".1" max="10" step=".05" value="1.50">
+        <input id="maxPrice" type="number" min=".1" max="10" step=".05" value="3.50">
       </div>
       <div class="filter-box">
         <label>Sort</label>
@@ -255,7 +255,7 @@
         <div id="sessionGpuPrice" class="price"></div>
       </div>
 
-      <div class="field"><label for="sessionModel">Model</label><select id="sessionModel"><option value="legacy">LTX-2.5 / legacy models</option><option value="h3-fl2va">MiniMax H3 — authorization required</option></select><p id="modelGate" role="status"></p></div>
+      <div class="field"><label for="sessionModel">Model</label><select id="sessionModel"><option value="wan22">Wan 2.2 · quality · 80 GB GPU required</option><option value="legacy">LTX-2.5 / other models</option><option value="h3-fl2va">MiniMax H3 — authorization required</option></select><p id="modelGate" role="status"></p></div>
       <div class="field">
         <label>Maximum session</label>
         <div class="hours">
@@ -667,15 +667,16 @@ async function pollWorkspace(){
 
 $("#sessionModel").onchange=()=>{
   const gated=$("#sessionModel").value==="h3-fl2va";
-  $("#startSession").disabled=gated;
-  $("#modelGate").textContent=gated?"H3 execution requires deployment authorization. No GPU will be allocated.":"";
+  const tooSmall=$("#sessionModel").value==="wan22" && Number(selectedOffer?.vram_gb||0)<80;
+  $("#startSession").disabled=gated||tooSmall;
+  $("#modelGate").textContent=gated?"H3 execution requires deployment authorization. No GPU will be allocated.":tooSmall?"Choose an 80 GB or larger GPU for the Wan quality preset.":"";
 };
 $("#saveCredentials").onclick=saveCredentials;
 $("#refreshGpu").onclick=loadGpus;
 $("#minVram").onchange=filterOffers;
 $("#maxPrice").oninput=filterOffers;
 $("#sortGpu").onchange=filterOffers;
-$("#continueGpu").onclick=()=>{updateSessionSummary();go(3)};
+$("#continueGpu").onclick=()=>{updateSessionSummary();go(3);$("#sessionModel").onchange()};
 $("#startSession").onclick=startSession;
 $("#findAnother").onclick=async()=>{$("#launchError").textContent="";$("#launchRetry").style.display="none";selectedOffer=null;$("#startSession").disabled=false;$("#sessionModel").onchange();$("#gpuSelection").style.display="none";go(2);await loadGpus()};
 
@@ -767,6 +768,7 @@ async function bootstrap(){
   if(bootstrapData.lifecycle_test){
     selectedHours=0.25;
     document.querySelectorAll(".hour").forEach((b,i)=>{b.hidden=i>0;if(i===0){b.dataset.hours="0.25";b.textContent="15 minutes";}});
+    $("#sessionModel").options[0].value="legacy";
     $("#sessionModel").options[0].textContent="Infrastructure test · synthetic video, no AI model";
     $("#modelGate").textContent="Development test: real paid GPU, synthetic renderer, 75-second idle shutdown, 15-minute hard limit.";
     $("#minVram").insertAdjacentHTML("afterbegin",'<option value="8">8 GB+ · infrastructure test</option>');

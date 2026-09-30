@@ -895,7 +895,7 @@ class Handler(BaseHTTPRequestHandler):
             if model == "h3-fl2va":
                 from app.h3 import require_h3
                 require_h3()
-            elif model != "legacy":
+            elif model not in {"legacy", "wan22"}:
                 raise ValueError("Choose a supported model before starting a session")
 
             runpod_key = str(saved.get("runpod_api_key") or "").strip()
@@ -931,6 +931,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Selected GPU is no longer available; refresh GPU choices")
             price = offer["price_per_hour"]
             vram = offer["vram_gb"]
+            if model == "wan22" and vram < 80:
+                raise ValueError("Wan quality requires an 80 GB or larger GPU. Return to GPU selection.")
+            if model == "wan22" and disk < 180:
+                raise ValueError("Wan requires at least 180 GB temporary disk for its full model weights")
             if price < 0:
                 raise ValueError("GPU price is invalid.")
 
