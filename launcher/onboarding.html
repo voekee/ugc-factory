@@ -268,7 +268,7 @@
 
       <div class="estimate"><span>Estimated maximum GPU compute</span><b id="estimate"></b></div>
 
-      <details>
+      <details id="runtimeAdvanced">
         <summary>Advanced settings</summary>
         <div class="advanced">
           <div class="field"><label>Ephemeral disk GB</label><input id="disk" type="number" min="100" max="1000" step="10" value="180"></div>
@@ -281,7 +281,7 @@
         <button id="startSession" class="button primary">Start session</button>
       </div>
       <div id="sessionError" class="error"></div>
-      <p class="footnote">No Network Volume is created. The local Pod disk disappears when you terminate the Pod. The estimate above assumes the GPU runs for the full selected time.</p>
+      <p class="footnote" id="sessionStorageNote">No Network Volume is created. The local Pod disk disappears when you terminate the Pod. The estimate above assumes the GPU runs for the full selected time.</p>
     </div>
   </section>
 
@@ -446,6 +446,17 @@ async function loadGpus(){
 }
 
 function updateSessionSummary(){
+  const h3=$("#sessionModel").value==="h3-fl2va";
+  $("#runtimeAdvanced").hidden=h3;
+  $("#sessionStorageNote").textContent=h3?"H3 needs a prepared weight volume. GPU and storage pricing are unavailable until the actual connection is verified.":"No Network Volume is created. The local Pod disk disappears when you terminate the Pod. The estimate above assumes the GPU runs for the full selected time.";
+  if(h3){
+    $("#sessionGpuName").textContent="H3 GPU connection pending";
+    $("#sessionGpuMeta").textContent="Dedicated multi-GPU profile · actual location must be verified";
+    $("#sessionGpuPrice").textContent="Unavailable";
+    $("#estimate").textContent="Unavailable";
+    $("#startSession").textContent="GPU connection pending";
+    return;
+  }
   if(!selectedOffer) return;
   $("#sessionGpuName").textContent=selectedOffer.name;
   $("#sessionGpuMeta").textContent=`${selectedOffer.vram_gb} GB VRAM · ${selectedOffer.cloud==="COMMUNITY"?"Community Cloud":"Secure Cloud"}`;
@@ -693,13 +704,14 @@ async function pollWorkspace(){
 }
 
 $("#sessionModel").onchange=()=>{
+  updateSessionSummary();
   const gated=$("#sessionModel").value==="h3-fl2va";
   const model=$("#sessionModel").value;
   const tooSmall=["wan22","skyreelsv3"].includes(model) && Number(selectedOffer?.vram_gb||0)<80;
   const unprepared=model==="skyreelsv3" && !bootstrapData?.skyreels_prepared;
   $("#startSession").disabled=gated||tooSmall||unprepared;
   const h3Prepared=bootstrapData?.h3_setup?.operator_country && bootstrapData?.h3_setup?.deployment_country;
-  $("#modelGate").textContent=gated?(h3Prepared?"H3 setup saved · GPU connection and validation pending. No GPU will be allocated.":"H3 execution requires deployment authorization. No GPU will be allocated."):unprepared?"SkyReels runtime is being prepared. Starting a paid GPU is blocked.":tooSmall?"Choose an 80 GB or larger GPU for this quality preset.":model==="skyreelsv3"?"Five-second videos with up to four references. First use downloads weights; speed and product fidelity must be measured.":"";
+  $("#modelGate").textContent=gated?(h3Prepared?(bootstrapData.h3_setup.license_recorded?"H3 setup saved · GPU connection and validation pending. No GPU will be allocated.":"H3 setup saved · license acceptance and GPU connection pending. No GPU will be allocated."):"H3 execution requires deployment authorization. No GPU will be allocated."):unprepared?"SkyReels runtime is being prepared. Starting a paid GPU is blocked.":tooSmall?"Choose an 80 GB or larger GPU for this quality preset.":model==="skyreelsv3"?"Five-second videos with up to four references. First use downloads weights; speed and product fidelity must be measured.":"";
 };
 $("#saveCredentials").onclick=saveCredentials;
 $("#refreshGpu").onclick=loadGpus;
@@ -791,6 +803,8 @@ $("#forgetKeys").onclick=async()=>{
 
 async function bootstrap(){
   bootstrapData=await get("/api/bootstrap");
+  if(bootstrapData.h3_setup?.operator_country && bootstrapData.h3_setup?.deployment_country)
+    $("#sessionModel").querySelector('option[value="h3-fl2va"]').textContent="MiniMax H3 · setup saved · GPU connection pending";
   $("#configPath").textContent=bootstrapData.config_path;
   $("#image").value=bootstrapData.image||"ghcr.io/voekee/ugc-factory@sha256:705a3fbc52304cec52eabc6535141b2be4f61333342da2f26d038097abbde82d";
   $("#disk").value=bootstrapData.disk||180;

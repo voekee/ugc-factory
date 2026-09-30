@@ -49,6 +49,15 @@ rejects them. Output/use restrictions also apply.
    from `MiniMaxAI/MiniMax-H3` at `/runpod-volume/models/MiniMax-H3` on the
    selected persistent volume. No startup download is allowed. Persistent
    storage can cost money even when no GPU runs.
+   Check the staged files on that storage host before starting a GPU:
+
+```sh
+python scripts/check_h3_weights.py /runpod-volume/models/MiniMax-H3
+```
+
+This verifies the required component files and indexed shards without loading
+tensors. It does not verify tensor integrity, numerical behavior or CUDA.
+
 5. Save connection details, without enabling execution:
 
 ```sh

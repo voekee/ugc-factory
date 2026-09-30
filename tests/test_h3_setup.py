@@ -73,3 +73,24 @@ def test_h3_cannot_allocate_with_unprepared_worker_image(monkeypatch):
     with pytest.raises(ValueError, match="prepared H3 worker"):
         runpod_launcher.launch_pod(api_key="fixture", image="normal-wan-image", model="h3-fl2va")
     create.assert_not_called()
+
+
+def test_staged_checkpoint_rejects_missing_indexed_shard(tmp_path):
+    from scripts.check_h3_weights import check_weights
+    (tmp_path / "model_index.json").write_text("{}")
+    family = tmp_path / "FL2VA"
+    family.mkdir()
+    (family / "model_index.json").write_text("{}")
+    for name in ("processor", "tokenizer", "text_encoder", "transformer", "video_vae", "audio_vae"):
+        component = family / name
+        component.mkdir()
+        (component / "config.json").write_text("{}")
+        (component / "tokenizer_config.json").write_text("{}")
+        if name not in {"processor", "tokenizer"}:
+            (component / "model.safetensors").write_bytes(b"synthetic fixture" * 100)
+    index = family / "transformer" / "model.safetensors.index.json"
+    index.write_text(json.dumps({"weight_map": {"layer": "missing-shard.safetensors"}}))
+    with pytest.raises(ValueError, match="incomplete"):
+        check_weights(tmp_path)
+    index.unlink()
+    assert check_weights(tmp_path)["weight_files"] == 4

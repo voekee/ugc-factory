@@ -127,6 +127,8 @@ def _public_config() -> dict[str, Any]:
         "skyreels_prepared": bool(SKYREELS_IMAGE),
         "h3_setup": {"operator_country": settings.h3_operator_region,
                      "deployment_country": settings.h3_allowed_region,
+                     "profile": settings.h3_profile,
+                     "license_recorded": settings.h3_license_authorized,
                      "connection_pending": not bool(settings.h3_network_volume_id and settings.h3_data_center_id)},
         "hours": float(saved.get("hours", DEFAULTS["hours"])),
         "disk": int(saved.get("disk", DEFAULTS["disk"])),
